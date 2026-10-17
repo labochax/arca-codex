@@ -1,0 +1,4 @@
+interface:
+  display_name: "ARCA Facturación"
+  short_description: "Facturas C y FCE C con credenciales privadas"
+  default_prompt: "Usá $arca-facturar para preparar una factura con mis datos."

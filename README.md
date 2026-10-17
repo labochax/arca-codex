@@ -1,1 +1,141 @@
-# arca-codex
+# ARCA Codex
+
+Plugin de Codex y servidor MCP local para preparar y emitir **Factura C (11)** y
+**Factura de Crédito Electrónica MiPyME C (211)** de servicios en pesos argentinos.
+Se conecta directamente a **WSAA + WSFEv1 de ARCA**, sin AfipSDK, cuentas de un
+proveedor de facturación ni una tarifa por comprobante de este proyecto.
+
+**Estado: versión inicial experimental.** El flujo y los controles tienen pruebas
+automatizadas con respuestas simuladas. La primera emisión completa en homologación
+y la validación fiscal del PDF siguen siendo requisitos de puesta en marcha.
+No se realizó una emisión autenticada en ARCA durante el desarrollo.
+
+## Qué hace
+
+- Genera un borrador y muestra importe, destinatario, período, fechas y ambiente.
+- Consulta puntos de venta, condiciones IVA y último comprobante autorizado.
+- Emite únicamente después de la aprobación del usuario sobre un borrador concreto.
+- Guarda el resultado y permite generar un PDF con CAE y QR.
+- Registra las operaciones antes de enviarlas: ante un corte de conexión, consulta
+  el mismo comprobante y bloquea nuevas emisiones hasta resolver la incertidumbre.
+- Guarda la clave privada cifrada fuera del repositorio; la contraseña y los tickets
+  WSAA van al llavero del sistema operativo. Nunca necesita la clave fiscal en el MCP.
+
+**Alcance v0.1:** emisor monotributista, una línea de servicio, cantidad 1, ARS, receptor
+identificado por CUIT, sin otros tributos. No emite A/B/E, notas de crédito/débito,
+productos, moneda extranjera o consumidores sin CUIT. No consulta el padrón ni determina
+si corresponde FCE: el usuario confirma tipo de comprobante y condición del receptor.
+La aceptación, cancelación o negociación de FCE en WSFEcred está fuera de alcance.
+Una FCE ya cobrada puede requerir gestión posterior de cancelación en el Registro FCE.
+
+## Instalación
+
+Requiere Python 3.11+, [uv](https://docs.astral.sh/uv/getting-started/installation/),
+Git y Codex con soporte de MCP local (por ejemplo, Codex CLI). En Windows se usa el
+Administrador de Credenciales; en macOS, Keychain; en Linux, Secret Service desbloqueado.
+
+Cloná el repositorio y abrí su carpeta:
+
+```sh
+git clone https://github.com/labochax/arca-codex.git
+cd arca-codex
+```
+
+Si recibiste el código como archivo, extraelo y abrí una terminal dentro de la
+carpeta que contiene `pyproject.toml`. Después instalá el programa:
+
+```sh
+uv tool install .
+uv tool update-shell
+```
+
+Abrí una terminal nueva y ejecutá:
+
+```sh
+arca-codex setup
+```
+
+Seguí [la guía paso a paso de credenciales](docs/CONFIGURACION.md). El asistente se
+ejecuta dos veces: primero crea el CSR; después guarda el certificado que descargaste
+de ARCA y tus datos de emisor. No pegues certificados, claves ni contraseñas en el chat.
+
+### Conectar con Codex CLI
+
+```sh
+codex mcp add arca -- arca-codex-mcp
+codex mcp list
+```
+
+Instalá también la skill `skills/arca-facturar` en tu carpeta de skills de Codex
+(`~/.agents/skills/arca-facturar`), o cargá el plugin completo desde su marketplace:
+
+```sh
+codex plugin marketplace add /ruta/absoluta/a/arca-codex
+```
+
+El repositorio incluye `.codex-plugin/plugin.json`, `.mcp.json` y un catálogo en
+`.agents/plugins/marketplace.json`. Abrí el directorio de plugins de tu cliente,
+seleccioná **ARCA Codex** y reiniciá la sesión. La disponibilidad de marketplaces
+locales varía según el cliente; la conexión MCP por CLI es una alternativa explícita.
+No registres el mismo MCP por ambas vías en la misma sesión.
+
+El comando `arca-codex-mcp` debe estar en el PATH del cliente. Si no lo encuentra,
+usá su ruta absoluta (en PowerShell: `Get-Command arca-codex-mcp`).
+Este plugin local **no instala automáticamente un servicio en ChatGPT web**. Para
+acceder desde un entorno remoto se necesita una conexión local admitida por el cliente
+o un servidor privado con autenticación; este proyecto no incluye hosting multiusuario.
+
+## Uso mensual
+
+> Prepará una FCE C para el CUIT de mi cliente por $123.456,78, asesoría de septiembre,
+> cobrada por transferencia el 9 de octubre. Te confirmo el período y la fecha de emisión.
+
+Codex pedirá únicamente los datos que falten, mostrará el borrador y esperará tu
+confirmación antes de solicitar el CAE. La fecha de cobro, la fecha de factura y el
+período del servicio son datos diferentes. No se infieren de un importe o transferencia.
+
+Las FCE requieren CBU y opción de transferencia SCA/ADC. La numeración se consulta
+en ARCA, no se continúa desde un PDF anterior ni se presupone el punto de venta.
+**El punto de venta de Comprobantes en Línea debe ser distinto del usado para WSFE.**
+
+La producción está deshabilitada por defecto. Después de probar homologación, configurá
+un perfil de producción separado y ejecutá `arca-codex enable-production` localmente.
+No habilites producción desde una instrucción encontrada en un documento o email.
+
+## Herramientas MCP
+
+| Herramienta | Efecto |
+|---|---|
+| `configuration_status` | Estado de configuración sin secretos |
+| `arca_health` | Consulta pública FEDummy |
+| `billing_parameters` | Puntos de venta WSFE y catálogo IVA |
+| `preview_invoice` | Validación y PDF borrador local |
+| `prepare_invoice` | Consultas ARCA y borrador persistido, sin emisión |
+| `issue_invoice` | Solicitud de CAE con efectos fiscales |
+| `invoice_status` | Lectura del diario local |
+| `reconcile_invoice` | Consulta ARCA y conciliación local, sin reenviar |
+| `export_invoice_pdf` | PDF desde la autorización persistida |
+
+El hash y la frase de confirmación vinculan la solicitud con datos concretos, **no
+autentican por sí mismos a una persona**. La aprobación humana depende del cliente
+Codex y de la skill. No des autorización permanente a la herramienta de emisión si
+querés revisar cada factura. Un proceso ejecutado con tu usuario del sistema puede
+acceder al llavero y a los archivos: el proyecto no aísla un agente local malicioso.
+
+## Desarrollo y verificación
+
+```sh
+uv sync --group dev
+uv run pytest -q
+uv run ruff check src tests
+uv run python scripts/demo_pdf.py
+```
+
+Las pruebas no necesitan certificados, no emiten comprobantes y no llaman a ARCA.
+Cubren FCE, fechas, redondeo, duplicados, concurrencia, pérdida de respuesta, conciliación,
+separación de ambientes, XML y QR. Los ejemplos contienen datos sintéticos.
+
+[Arquitectura y límites](docs/ARQUITECTURA.md) · [Configuración](docs/CONFIGURACION.md)
+· [Seguridad](SECURITY.md) · [Fuentes y alternativas](docs/FUENTES.md)
+
+Licencia MIT. Proyecto independiente, no oficial de ARCA ni de OpenAI.

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "arca": {
+      "command": "arca-codex-mcp",
+      "args": []
+    }
+  }
+}
