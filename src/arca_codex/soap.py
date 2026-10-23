@@ -196,7 +196,15 @@ class Wsfe:
         return self.call("FEDummy", authenticate=False)
 
     def points(self):
-        return many(self.call("FEParamGetPtosVenta").get("ResultGet", {}).get("PtoVenta"))
+        try:
+            result = self.call("FEParamGetPtosVenta")
+        except ArcaError as exc:
+            # Homologation can answer the last-number query while its catalog is
+            # unavailable. An empty catalog is not proof that a point is enabled.
+            if self.profile.environment == "homologacion" and exc.codes == ("602",):
+                return []
+            raise
+        return many(result.get("ResultGet", {}).get("PtoVenta"))
 
     def iva_conditions(self):
         return many(
@@ -206,12 +214,17 @@ class Wsfe:
         )
 
     def last(self, voucher_type):
-        return int(
-            self.call(
-                "FECompUltimoAutorizado",
-                {"PtoVta": self.profile.point_of_sale, "CbteTipo": voucher_type},
-            )["CbteNro"]
+        result = self.call(
+            "FECompUltimoAutorizado",
+            {"PtoVta": self.profile.point_of_sale, "CbteTipo": voucher_type},
         )
+        try:
+            point, kind, number = (int(result[k]) for k in ("PtoVta", "CbteTipo", "CbteNro"))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise TransportError("Consulta de último comprobante incompleta") from exc
+        if point != self.profile.point_of_sale or kind != voucher_type or number < 0:
+            raise TransportError("Consulta de último comprobante no coincide con lo solicitado")
+        return number
 
     def consult(self, voucher_type, number):
         try:

@@ -64,7 +64,10 @@ class Engine:
                 raise ValueError(f"Hay una emisión pendiente de conciliación: {pending['id']}")
             points = self.client.points()
             p = next((p for p in points if int(p["Nro"]) == self.profile.point_of_sale), None)
-            if (
+            catalog_missing_in_homologation = (
+                not points and self.profile.environment == "homologacion"
+            )
+            if not catalog_missing_in_homologation and (
                 not p
                 or p.get("Bloqueado") != "N"
                 or p.get("FchBaja") not in (None, "", "NULL", "00000000")

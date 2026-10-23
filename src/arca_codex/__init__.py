@@ -1,3 +1,3 @@
 """Direct ARCA integration. No paid API provider, no embedded credentials."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

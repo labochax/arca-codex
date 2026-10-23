@@ -60,8 +60,16 @@ def arca_health() -> dict[str, Any]:
 def billing_parameters() -> dict[str, Any]:
     """Consultar puntos de venta WSFE y condiciones IVA válidas para clase C."""
     e = engine()
+    points = e.client.points()
     return {
-        "points_of_sale": e.client.points(),
+        "points_of_sale": points,
+        "points_catalog_available": bool(points),
+        "notice": (
+            "Homologación sin catálogo de puntos: preparar consultará el último número. "
+            "La habilitación para emitir sigue sujeta a la autorización de ARCA."
+            if not points and e.profile.environment == "homologacion"
+            else None
+        ),
         "recipient_iva_conditions": e.client.iva_conditions(),
     }
 

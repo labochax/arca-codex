@@ -63,6 +63,17 @@ arca-codex doctor
 Debe mostrar certificado vigente, servicios disponibles, punto de venta y condiciones
 IVA. Si falla: revisá ambiente correcto, certificado vigente, autorización `wsfe`,
 CUIT representado y fecha/hora del equipo. No envíes capturas con secretos a un issue.
+En homologación, la consulta de puntos puede responder `602` (sin registros).
+Desde v0.1.1, esto se muestra como catálogo vacío: `doctor` consulta además el último
+número de FCE C para el punto configurado. Una respuesta con número `0` significa
+que esa consulta no registra comprobantes anteriores, no que la emisión esté
+habilitada. Preparar también requiere consultar el último número del tipo solicitado;
+la aceptación se verifica al autorizar el comprobante de prueba. Si el catálogo sí
+devuelve puntos, se siguen rechazando los ausentes, bloqueados o dados de baja.
+En producción, `602` no activa esta alternativa y el punto debe figurar habilitado.
+No se elige automáticamente el punto `1`: debe seleccionarse y consultarse de forma
+explícita en homologación, conservando el mismo perfil. No crear un punto de venta
+real para resolver por suposición una consulta del ambiente de pruebas.
 Si WSAA informa que ya existe un ticket, no borres el llavero ni pidas tickets en un
 bucle: el cache conserva el ticket hasta su vencimiento. Otros programas que usan
 el mismo certificado pueden interferir; usá un certificado dedicado.

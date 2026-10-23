@@ -93,13 +93,26 @@ def main():
             p = load_profile(root)
             _, cert = load_pair(p)
             client = Wsfe(p, root)
+            points = client.points()
+            catalog_missing_in_homologation = not points and p.environment == "homologacion"
             print(
                 json.dumps(
                     {
                         "environment": p.environment,
                         "certificate_expires": cert.not_valid_after_utc.isoformat(),
                         "health": client.health(),
-                        "points_of_sale": client.points(),
+                        "points_of_sale": points,
+                        "points_catalog_available": bool(points),
+                        "configured_point_of_sale": p.point_of_sale,
+                        "last_fce_number": client.last(211)
+                        if catalog_missing_in_homologation
+                        else None,
+                        "notice": (
+                            "Homologación sin catálogo de puntos: se consultó el último número "
+                            "de FCE C. Esto no acredita habilitación ni autoriza una factura."
+                            if catalog_missing_in_homologation
+                            else None
+                        ),
                         "iva_conditions": client.iva_conditions(),
                     },
                     ensure_ascii=False,
