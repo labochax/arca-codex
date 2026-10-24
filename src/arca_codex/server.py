@@ -116,11 +116,14 @@ def prepare_invoice(invoice: Invoice, request_key: str) -> dict[str, Any]:
 
 
 @mcp.tool(annotations=WRITE)
-def issue_invoice(draft_id: str, confirmation: str) -> dict[str, Any]:
+def issue_invoice(
+    draft_id: str, confirmation: str, emission_place: str | None = None
+) -> dict[str, Any]:
     """Emitir comprobante con efectos fiscales (FECAESolicitar). Requiere aprobación explícita
     del usuario sobre el resumen exacto y confirmation retornado por prepare_invoice.
+    Para FCE requiere emission_place confirmado en el resumen mostrado al usuario.
     El hash vincula los datos; no prueba consentimiento humano. Ante uncertain conciliar."""
-    return engine().emit(draft_id, confirmation)
+    return engine().emit(draft_id, confirmation, emission_place=emission_place)
 
 
 @mcp.tool(annotations=READ)

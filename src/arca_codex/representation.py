@@ -6,6 +6,15 @@ from datetime import date
 from decimal import Decimal
 
 
+def validate_emission_place(value: str | None, *, required: bool = False) -> str | None:
+    value = value.strip() if value else None
+    if value and (len(value) > 120 or any(ord(c) < 32 for c in value)):
+        raise ValueError("Lugar de emisión inválido")
+    if required and not value:
+        raise ValueError("Confirmar lugar de emisión para completar la FCE")
+    return value
+
+
 def acceptance_days(invoice_date: str) -> int:
     # Resolution 219/2025, art. 1. Do not silently extend an expired exception.
     if date(2025, 11, 1) <= date.fromisoformat(invoice_date) <= date(2026, 10, 31):

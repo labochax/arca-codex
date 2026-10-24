@@ -35,11 +35,16 @@ receptor identificado por CUIT. Esta revisión no solicita CAE ni habilita produ
 - Importe en números y letras mediante Decimal, sin conversión monetaria a float;
   admite el rango del modelo (13 enteros y 2 decimales), apócope, millones y billones.
 - Lugar de emisión confirmado por el usuario, separado del domicilio comercial.
-  Sin él, un borrador muestra la falta; se bloquea el PDF definitivo FCE. Es un
-  argumento gráfico que no altera el resumen fiscal ya persistido.
+  Sin él, un borrador muestra la falta; se bloquean tanto el envío FCE como su PDF
+  definitivo. Se muestra al usuario antes de aprobar y se pasa a `issue_invoice`
+  como `emission_place`. Se conserva con el resultado y los estados inciertos,
+  sin alterar el resumen fiscal ya persistido. La exportación reutiliza ese lugar
+  y rechaza uno distinto; las exportaciones históricas conservan su fecha original.
 - Leyendas de aceptación/ejecutividad y consentimiento de transferencia de
   información separadas de la leyenda de circulación SCA/ADC. La regla temporal
-  se bloquea fuera de su vigencia verificada, sin asumir prórrogas futuras.
+  se bloquea fuera de su vigencia verificada, sin asumir prórrogas futuras. Antes
+  de solicitar CAE se verifican el día del envío y la fecha de factura, también
+  cuando se intenta enviar un comprobante fechado antes de vencer la regla.
 - PDF definitivo solo desde estado autorizado persistido; CAE, vencimiento y QR
   de producción. El hash del borrador y los campos fiscales de la respuesta se
   comprueban al exportar. Se rechazan número, emisor, punto, tipo, receptor, fecha,

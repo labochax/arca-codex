@@ -20,7 +20,12 @@ from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Space
 
 from .authorization import validate_authorization
 from .models import Invoice
-from .representation import acceptance_legend, amount_in_words, circulation_legend
+from .representation import (
+    acceptance_legend,
+    amount_in_words,
+    circulation_legend,
+    validate_emission_place,
+)
 from .storage import write_private
 
 
@@ -72,9 +77,7 @@ def render_invoice(
     is_fce = inv["voucher_type"] == 211
     if summary["environment"] not in ("homologacion", "produccion"):
         raise ValueError("Ambiente desconocido")
-    emission_place = emission_place.strip() if emission_place else None
-    if emission_place and (len(emission_place) > 120 or any(ord(c) < 32 for c in emission_place)):
-        raise ValueError("Lugar de emisión inválido")
+    emission_place = validate_emission_place(emission_place)
     if technical_sample:
         if production or not authorized or result.get("simulated") is not True:
             raise ValueError("Muestra técnica solo en homologación con autorización simulada")
@@ -84,8 +87,14 @@ def render_invoice(
         raise ValueError("Resultado sin autorización")
     if authorized:
         validate_authorization(summary, result)
-        if is_fce and not emission_place and not technical_sample:
-            raise ValueError("Confirmar lugar de emisión para completar la FCE")
+        stored_place = result.get("emission_place")
+        if stored_place:
+            if emission_place and emission_place != stored_place:
+                raise ValueError("Lugar de emisión difiere del confirmado antes de emitir")
+            emission_place = stored_place
+        emission_place = validate_emission_place(
+            emission_place, required=is_fce and not technical_sample
+        )
     legal_legend = acceptance_legend(inv["invoice_date"]) if is_fce else None
     styles = getSampleStyleSheet()
     styles["Normal"].fontSize = 8.5

@@ -310,10 +310,10 @@ def test_engine_preserves_uncertain_on_response_mismatch(
     arca.authorize = mismatched
     e = Engine(profile, tmp_path, arca)
     draft = e.prepare(invoice, "mismatch-pdf-001")
-    out = e.emit(draft["draft_id"], draft["confirmation"])
+    out = e.emit(draft["draft_id"], draft["confirmation"], emission_place="Localidad de prueba")
     assert out["state"] == "uncertain" and arca.calls == 1
     with pytest.raises(ValueError, match="consultá su estado"):
-        e.emit(draft["draft_id"], draft["confirmation"])
+        e.emit(draft["draft_id"], draft["confirmation"], emission_place="Localidad de prueba")
     assert arca.calls == 1
 
 
@@ -329,7 +329,7 @@ def test_export_uses_the_persisted_response_in_both_authorization_paths(
     e = Engine(profile, tmp_path, arca)
     draft = e.prepare(invoice, "binding-pdf-001")
     arca.fail = reconcile
-    out = e.emit(draft["draft_id"], draft["confirmation"])
+    out = e.emit(draft["draft_id"], draft["confirmation"], emission_place="Localidad de prueba")
     if reconcile:
         assert out["state"] == "uncertain"
         out = e.reconcile(draft["draft_id"])

@@ -141,7 +141,9 @@ desarrollo incluyen pypdf, Pillow y ZXing-C++: el QR se decodifica desde la pág
 renderizada, sin abrir su URL. No se omite esa prueba si falta el renderizador.
 
 Desde 0.1.2, las FCE requieren `emission_place` confirmado para el PDF definitivo;
-este dato gráfico no modifica el borrador ni su hash. `preview_invoice` no asigna
+se exige también al solicitar el CAE y queda conservado en el resultado, incluidos
+los envíos inciertos. Este dato gráfico no modifica el borrador ni su hash.
+La exportación reutiliza ese lugar y rechaza uno diferente. `preview_invoice` no asigna
 número; para revisar el número propuesto usar `preview_prepared_invoice` después
 de preparar. El resultado autorizado conserva una vinculación al resumen y los
 campos fiscales de la respuesta, sin XML ni datos de autenticación. Los resultados
@@ -158,6 +160,9 @@ El script conserva el resumen, usa una autorización simulada solo en memoria y
 marca la muestra SIN VALIDEZ FISCAL / CAE SIMULADO. No escribe el diario. La regla
 de 21 días para FCE está verificada solo entre 01/11/2025 y 31/10/2026: fuera de
 ese intervalo se exige revisar normativa antes de generar la representación.
+Antes de enviar una FCE se verifica también el día actual; no se solicita CAE
+fuera del período verificado, aunque se use una fecha anterior en el comprobante.
+Esto no impide reexportar un comprobante histórico ya autorizado.
 El argumento opcional `snapshot` admite una copia local de `invoice_status`;
 esas copias y todos los artefactos generados deben mantenerse fuera del repositorio.
 
