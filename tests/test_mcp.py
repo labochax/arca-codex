@@ -23,6 +23,7 @@ def test_stdio_server_discovers_tools_without_credentials(tmp_path):
                     "arca_health",
                     "billing_parameters",
                     "preview_invoice",
+                    "preview_prepared_invoice",
                     "prepare_invoice",
                     "issue_invoice",
                     "invoice_status",

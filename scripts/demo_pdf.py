@@ -1,7 +1,8 @@
 """Render only synthetic drafts and homologation documents. Never contact ARCA."""
 
-from datetime import date
 from pathlib import Path
+
+from pdf_sample import simulated_authorization
 
 from arca_codex.models import Invoice
 from arca_codex.pdf import render_invoice
@@ -14,10 +15,10 @@ data = Invoice(
     recipient_iva_id=1,
     recipient_iva_label="IVA Responsable Inscripto",
     total="123456.78",
-    invoice_date=date.today(),
+    invoice_date="2026-10-24",
     service_from="2026-09-01",
     service_to="2026-09-30",
-    due_date=date.today(),
+    due_date="2026-11-23",
     description="Asesoría integral comercial y de gestión - septiembre 2026",
     sale_condition="Transferencia bancaria",
     commercial_reference="DEMO-SEP-26",
@@ -39,6 +40,14 @@ summary = {
 }
 for name, result in [
     ("borrador", None),
-    ("homologacion", {"cae": "12345678901234", "cae_due": date.today().isoformat()}),
+    ("muestra-qr", simulated_authorization(summary)),
 ]:
-    print(render_invoice(summary, result, Path("output") / f"demo-{name}.pdf"))
+    print(
+        render_invoice(
+            summary,
+            result,
+            Path("output/pdf") / f"demo-{name}.pdf",
+            emission_place="Localidad ficticia de prueba",
+            technical_sample=bool(result),
+        )
+    )

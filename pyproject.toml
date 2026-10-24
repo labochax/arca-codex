@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arca-codex"
-version = "0.1.1"
+version = "0.1.2"
 description = "MCP local para Factura C y FCE C, conectado directamente a ARCA"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,7 +21,8 @@ arca-codex = "arca_codex.cli:main"
 arca-codex-mcp = "arca_codex.server:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "pypdf>=6,<7", "pillow>=11,<13",
+       "zxing-cpp>=2.3,<4"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

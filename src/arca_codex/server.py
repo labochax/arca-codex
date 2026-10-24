@@ -75,14 +75,33 @@ def billing_parameters() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=LOCAL)
-def preview_invoice(invoice: Invoice) -> dict[str, Any]:
+def preview_invoice(invoice: Invoice, emission_place: str | None = None) -> dict[str, Any]:
     """Validar una factura y generar un PDF BORRADOR sin conectarse a ARCA. Ver esquema en skill."""
     e = engine()
     summary = e.preview(invoice)
     from .models import digest
 
     path = e.root / "output" / f"draft-{digest(summary)[:16]}.pdf"
-    return {"summary": summary, "pdf_path": render_invoice(summary, None, path)}
+    return {
+        "summary": summary,
+        "pdf_path": render_invoice(summary, None, path, emission_place=emission_place),
+    }
+
+
+@mcp.tool(annotations=LOCAL)
+def preview_prepared_invoice(draft_id: str, emission_place: str | None = None) -> dict[str, Any]:
+    """PDF BORRADOR desde el resumen persistido y su número exacto, sin emitir ni consultar ARCA.
+
+    emission_place es un dato gráfico confirmado por el usuario; no modifica el borrador.
+    """
+    e = engine()
+    row = e.get(draft_id)
+    path = e.root / "output" / f"prepared-{draft_id[:16]}.pdf"
+    return {
+        "summary": row["payload"],
+        "state": row["state"],
+        "pdf_path": render_invoice(row["payload"], None, path, emission_place=emission_place),
+    }
 
 
 @mcp.tool(
@@ -122,7 +141,7 @@ def reconcile_invoice(draft_id: str) -> dict[str, Any]:
 
 
 @mcp.tool(annotations=LOCAL)
-def export_invoice_pdf(draft_id: str) -> dict[str, Any]:
+def export_invoice_pdf(draft_id: str, emission_place: str | None = None) -> dict[str, Any]:
     """Generar PDF con QR solo desde una autorización persistida; homologación lleva marca de prueba."""
     e = engine()
     row = e.get(draft_id)
@@ -130,7 +149,9 @@ def export_invoice_pdf(draft_id: str) -> dict[str, Any]:
         raise ValueError("Todavía no existe una autorización para generar el comprobante final")
     path = e.root / "output" / f"invoice-{draft_id[:16]}.pdf"
     return {
-        "pdf_path": render_invoice(row["payload"], row["result"], path),
+        "pdf_path": render_invoice(
+            row["payload"], row["result"], path, emission_place=emission_place
+        ),
         "environment": e.profile.environment,
         "cae": row["result"]["cae"],
     }

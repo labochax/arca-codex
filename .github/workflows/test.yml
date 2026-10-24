@@ -15,6 +15,19 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@v6
+      - name: Install Poppler (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Install Poppler (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install poppler --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Poppler installation failed' }
+          $poppler = Get-ChildItem "$env:ChocolateyInstall\lib\poppler" -Recurse -Filter pdftoppm.exe | Select-Object -First 1
+          if (-not $poppler) { throw 'pdftoppm.exe not found' }
+          $poppler.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - run: uv sync --frozen --group dev
       - run: uv run pytest -q
-      - run: uv run ruff check src tests
+      - run: uv run ruff check src tests scripts
+      - run: uv run python scripts/pdf_sample.py

@@ -13,6 +13,7 @@ modificar reglas fiscales o habilitar otros comprobantes.
 | Certificados de prueba y producción | https://www.afip.gob.ar/ws/documentacion/certificados.asp |
 | Punto de venta por modalidad | https://ftp.afip.gob.ar/fe/emision-autorizacion/solicitud-autorizacion.asp |
 | QR | https://www.afip.gob.ar/fe/qr/ |
+| Revisión de representación 24/10/2026 | [Fuentes, controles y límites](REPRESENTACION.md) |
 | Plugins de Codex | https://developers.openai.com/plugins/build/plugins |
 | MCP para Codex | https://developers.openai.com/codex/mcp |
 | SDK MCP Python | https://github.com/modelcontextprotocol/python-sdk |

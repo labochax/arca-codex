@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from filelock import FileLock
 
+from .authorization import make_authorization
 from .models import Invoice, canonical, digest
 from .soap import many
 from .storage import database, decode_row
@@ -196,13 +197,12 @@ class Engine:
                 elif d.get("Resultado") == "A" and re.fullmatch(
                     r"[0-9]{14}", str(d.get("CAE", ""))
                 ):
-                    expiry = datetime.strptime(d["CAEFchVto"], "%Y%m%d").date().isoformat()
+                    authorization = make_authorization(row["payload"], reply)
                     self.set_state(
                         draft_id,
                         "authorized",
                         {
-                            "cae": d["CAE"],
-                            "cae_due": expiry,
+                            **authorization,
                             "observation_codes": [
                                 str(x.get("Code"))
                                 for x in many(d.get("Observaciones", {}).get("Obs"))
@@ -256,8 +256,8 @@ class Engine:
                 or not re.fullmatch(r"[0-9]{14}", cae)
             ):
                 raise ValueError("No se encontró una autorización CAE válida")
-            expiry = datetime.strptime(found["FchVto"], "%Y%m%d").date().isoformat()
+            authorization = make_authorization(row["payload"], found, consulted=True)
             self.set_state(
-                draft_id, "authorized", {"cae": cae, "cae_due": expiry, "reconciled": True}
+                draft_id, "authorized", {**authorization, "reconciled": True}
             )
             return self.public(self.get(draft_id))

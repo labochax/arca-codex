@@ -83,9 +83,19 @@ class FakeArca:
         if self.fail:
             raise TimeoutError("simulated response lost AFTER authorization")
         return {
-            "FeCabResp": {"PtoVta": "2", "CbteTipo": str(kind), "CantReg": "1"},
+            "FeCabResp": {
+                "Cuit": "20123456786",
+                "PtoVta": "2",
+                "CbteTipo": str(kind),
+                "CantReg": "1",
+                "Resultado": "R" if self.reject else "A",
+            },
             "FeDetResp": {
                 "FECAEDetResponse": {
+                    "Concepto": detail["Concepto"],
+                    "DocTipo": detail["DocTipo"],
+                    "DocNro": detail["DocNro"],
+                    "CbteFch": detail["CbteFch"],
                     "CbteDesde": detail["CbteDesde"],
                     "CbteHasta": detail["CbteHasta"],
                     "Resultado": "R" if self.reject else "A",

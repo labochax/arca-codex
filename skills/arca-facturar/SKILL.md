@@ -47,6 +47,10 @@ próximo número de facturas adjuntas. Cada usuario conserva sus propias credenc
    Usar fechas ISO `AAAA-MM-DD`. Ver [esquema](references/INVOICE.md).
 8. Usar `preview_invoice` y/o `prepare_invoice`. Mantener una `request_key` estable
    por operación, sin datos sensibles, y reutilizarla ante reintentos.
+9. Para el PDF de un borrador ya persistido usar `preview_prepared_invoice` con su
+   `draft_id`: conserva el número propuesto exacto. Confirmar el lugar de emisión
+   para FCE y pasarlo como `emission_place` al generar el PDF. No inferirlo del
+   domicilio ni modificar el resumen persistido. `preview_invoice` no asigna número.
 
 ## Confirmar y emitir
 
@@ -68,6 +72,10 @@ y presentar un nuevo resumen antes de emitir.
 Si queda `authorized`, usar `export_invoice_pdf` y comunicar número, CAE, vencimiento
 y ambiente. Homologación no tiene validez fiscal. No enviar la factura al cliente
 por correo u otra vía sin autorización específica.
+Para FCE pasar el lugar confirmado en `emission_place`; la exportación verifica
+la vinculación entre resumen y respuesta persistida. No fabricar una vinculación
+para resultados antiguos que no la tengan. La regla de 21 días está verificada
+solo hasta el 31/10/2026; revisar normativa para fechas posteriores.
 
 ## Errores y recuperación
 
