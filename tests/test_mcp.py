@@ -30,6 +30,10 @@ def test_stdio_server_discovers_tools_without_credentials(tmp_path):
                     "consult_invoice",
                     "reconcile_invoice",
                     "export_invoice_pdf",
+                    "invoice_output_options",
+                    "save_invoice_pdf",
+                    "prepare_invoice_email",
+                    "invoice_email_handoff",
                 }
                 issue = next(t for t in tools.tools if t.name == "issue_invoice")
                 assert issue.annotations.destructiveHint is True

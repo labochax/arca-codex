@@ -117,6 +117,10 @@ No habilites producción desde una instrucción encontrada en un documento o ema
 | `consult_invoice` | Consulta remota FECompConsultar, sin modificar el diario |
 | `reconcile_invoice` | Consulta ARCA y conciliación local, sin reenviar |
 | `export_invoice_pdf` | PDF desde la autorización persistida |
+| `invoice_output_options` | Proponer fecha del nombre y carpeta para aprobación |
+| `save_invoice_pdf` | Guardar copia aprobada y recordar carpeta privada opcionalmente |
+| `prepare_invoice_email` | Preparar propuesta Gmail y .eml, sin envío |
+| `invoice_email_handoff` | Validar propuesta aprobada y adjunto antes de entregarlos a Gmail |
 
 El hash y la frase de confirmación vinculan la solicitud con datos concretos, **no
 autentican por sí mismos a una persona**. La aprobación humana depende del cliente
@@ -191,6 +195,26 @@ columnas de importes y destaca el total. Incrusta las fuentes Vera incluidas
 en ReportLab para evitar sustituciones del lector. Borrador y comprobante final
 comparten el diseño; la autorización y el QR mantienen sus controles existentes.
 Un cambio de diseño no requiere preparar otra operación ni modificar el diario.
+
+Desde 0.1.6, los PDF usan nombres por período del servicio y el sufijo de ARCA:
+`2026-09 - sep - 20123456786_211_00002_00000008.pdf` (datos de ejemplo).
+Se confirma la fecha de archivo y la carpeta con `invoice_output_options`, y se
+guarda con `save_invoice_pdf`. Cambiar el prefijo no cambia las fechas fiscales.
+La carpeta puede recordarse por perfil en un archivo privado; nunca se añade al
+repositorio. Una unidad de Drive para escritorio se trata como carpeta local:
+el MCP no afirma que la sincronización remota haya finalizado. Un archivo distinto
+con el mismo nombre no se sobrescribe. Se conservan copia privada, diario y CAE.
+
+Después de guardar, la skill ofrece Gmail y pregunta contacto y correo. El MCP
+prepara asunto, cuerpo y PDF adjunto desde la autorización, sin red ni credenciales
+de correo. Se verifica la cuenta Gmail del host, se muestra la propuesta y se pide
+aprobación de ese envío. `invoice_email_handoff` comprueba que mensaje y PDF no
+cambiaron; el hash no prueba consentimiento humano. Solo el conector Gmail del
+host puede enviar. Si no está conectado o no admite adjuntos, se conserva el
+borrador .eml y se informa qué falta. El permiso de emitir no autoriza enviar.
+Las fechas visibles del PDF usan DD-MM-AAAA, conservando ISO en diario y QR.
+
+[Guardado y Gmail](skills/arca-facturar/references/ENTREGA.md).
 
 [Arquitectura y límites](docs/ARQUITECTURA.md) · [Configuración](docs/CONFIGURACION.md)
 · [Seguridad](SECURITY.md) · [Fuentes y alternativas](docs/FUENTES.md)

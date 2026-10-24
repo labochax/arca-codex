@@ -7,6 +7,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from . import delivery
+from .authorization import validate_authorization
 from .engine import Engine
 from .models import Invoice
 from .pdf import render_invoice
@@ -17,7 +19,10 @@ mcp = FastMCP(
     "ARCA Codex",
     instructions="Facturas C y FCE C de servicios en ARS. "
     "Preparar y mostrar datos antes de emitir. Nunca pedir claves, certificados o contraseñas por chat. "
-    "Ante estado uncertain usar reconcile_invoice; nunca reintentar la emisión.",
+    "Ante estado uncertain usar reconcile_invoice; nunca reintentar la emisión. "
+    "Antes de archivar preguntar fecha del nombre y carpeta con invoice_output_options. "
+    "Después de guardar ofrecer Gmail, preguntar contacto y correo y mostrar el mensaje "
+    "y la cuenta remitente antes de pedir autorización de envío. Este MCP no envía correo.",
 )
 READ = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
@@ -81,9 +86,7 @@ def preview_invoice(invoice: Invoice, emission_place: str | None = None) -> dict
     """Validar una factura y generar un PDF BORRADOR sin conectarse a ARCA. Ver esquema en skill."""
     e = engine()
     summary = e.preview(invoice)
-    from .models import digest
-
-    path = e.root / "output" / f"draft-{digest(summary)[:16]}.pdf"
+    path = e.root / "previews" / delivery.pdf_filename(summary, draft=True)
     return {
         "summary": summary,
         "pdf_path": render_invoice(summary, None, path, emission_place=emission_place),
@@ -98,7 +101,7 @@ def preview_prepared_invoice(draft_id: str, emission_place: str | None = None) -
     """
     e = engine()
     row = e.get(draft_id)
-    path = e.root / "output" / f"prepared-{draft_id[:16]}.pdf"
+    path = e.root / "previews" / delivery.pdf_filename(row["payload"], draft=True)
     return {
         "summary": row["payload"],
         "state": row["state"],
@@ -223,14 +226,132 @@ def export_invoice_pdf(draft_id: str, emission_place: str | None = None) -> dict
     row = e.get(draft_id)
     if row["state"] != "authorized":
         raise ValueError("Todavía no existe una autorización para generar el comprobante final")
-    path = e.root / "output" / f"invoice-{draft_id[:16]}.pdf"
+    # Re-rendering must not overwrite an archived or already approved attachment.
+    path = e.root / "rendered" / draft_id / delivery.pdf_filename(row["payload"])
     return {
         "pdf_path": render_invoice(
             row["payload"], row["result"], path, emission_place=emission_place
         ),
         "environment": e.profile.environment,
         "cae": row["result"]["cae"],
+        "requires_output_confirmation": True,
+        "next_step": "Usar invoice_output_options y preguntar fecha de archivo y carpeta. "
+        "La copia privada no acredita guardado en la carpeta elegida ni sincronización con Drive.",
     }
+
+
+@mcp.tool(annotations=READ)
+def invoice_output_options(
+    draft_id: str, filing_period: str | None = None, output_directory: str | None = None
+) -> dict[str, Any]:
+    """Proponer nombre por período del servicio y carpeta privada recordada, sin guardar allí.
+
+    Preguntar si el período/fecha del nombre y carpeta están bien o se deben cambiar.
+    filing_period admite AAAA-MM, AAAA-MM-DD o AAAA-MM-DD_al_AAAA-MM-DD.
+    Solo afecta el nombre, nunca las fechas fiscales. Mostrar la ruta antes de confirmar.
+    """
+    e = engine()
+    return delivery.output_options(
+        e.root, e.get(draft_id), period=filing_period, directory=output_directory
+    )
+
+
+@mcp.tool(annotations=LOCAL)
+def save_invoice_pdf(
+    draft_id: str,
+    confirmation: str,
+    filing_period: str | None = None,
+    output_directory: str | None = None,
+    remember_directory: bool = False,
+    emission_place: str | None = None,
+) -> dict[str, Any]:
+    """Guardar factura ya autorizada en la carpeta y con la fecha de archivo aprobadas.
+
+    Requiere confirmation de invoice_output_options para esos mismos parámetros.
+    remember_directory recuerda la carpeta solo en este perfil local. No sobrescribir
+    archivos distintos, emitir, cambiar el diario ni enviar emails. En Drive para
+    escritorio comprueba guardado local, no que se haya completado la sincronización.
+    """
+    e = engine()
+    row = e.get(draft_id)
+    if row["state"] != "authorized":
+        raise ValueError("Solo se puede archivar un comprobante autorizado")
+    options = delivery.output_options(e.root, row, period=filing_period, directory=output_directory)
+    if confirmation != options["confirmation"]:
+        raise ValueError("Confirmá la fecha de archivo y la carpeta propuestas antes de guardar")
+    validate_authorization(row["payload"], row["result"])
+    # Repeat saves use the exact saved bytes rather than re-rendering creation timestamps.
+    source = delivery.saved_attachment(e.root, row)
+    if source is None:
+        from pathlib import Path
+
+        source = Path(export_invoice_pdf(draft_id, emission_place)["pdf_path"])
+    return delivery.save_pdf(
+        e.root,
+        row,
+        source,
+        confirmation,
+        period=filing_period,
+        directory=output_directory,
+        remember_directory=remember_directory,
+    )
+
+
+@mcp.tool(annotations=LOCAL)
+def prepare_invoice_email(
+    draft_id: str,
+    recipient_name: str | None = None,
+    recipient_email: str | None = None,
+    emission_place: str | None = None,
+    sender_email: str | None = None,
+) -> dict[str, Any]:
+    """Preparar asunto, cuerpo y PDF para Gmail. No crear borradores remotos ni enviar.
+
+    Si faltan contacto o email, pedirlos al usuario. Verificar la cuenta Gmail remitente,
+    mostrar destinatario/asunto/cuerpo/adjunto y pedir aprobación antes de usar herramientas
+    Gmail disponibles en el host. La autorización fiscal NO autoriza el envío por correo.
+    No almacenar destinatarios predeterminados ni exponer el PDF en base64 en la conversación.
+    """
+    e = engine()
+    row = e.get(draft_id)
+    if row["state"] != "authorized" or e.profile.environment != "produccion":
+        raise ValueError("El correo al cliente requiere una factura de producción autorizada")
+    validate_authorization(row["payload"], row["result"])
+    missing = [
+        field
+        for field, value in (
+            ("recipient_name", recipient_name),
+            ("recipient_email", recipient_email),
+        )
+        if not value
+    ]
+    if missing:
+        return {
+            "sent": False,
+            "requires_recipient_confirmation": True,
+            "missing": missing,
+            "question": "¿A qué contacto y correo querés enviar la factura?",
+        }
+    attachment = delivery.saved_attachment(e.root, row)
+    if attachment is None:
+        from pathlib import Path
+
+        attachment = Path(export_invoice_pdf(draft_id, emission_place)["pdf_path"])
+    return delivery.prepare_email(
+        e.root, row, attachment, recipient_name, recipient_email, sender_email
+    )
+
+
+@mcp.tool(annotations=LOCAL)
+def invoice_email_handoff(proposal_id: str, confirmation: str) -> dict[str, Any]:
+    """Validar propuesta de correo y PDF después de la aprobación para entregarlos a Gmail.
+
+    NO envía ni crea borradores remotos. Requiere cuenta remitente identificada y
+    confirmation exacta de prepare_invoice_email. El hash no acredita consentimiento
+    humano; el host debe haber obtenido autorización para ese mensaje y adjunto.
+    Solo llamar a Gmail si está conectado y confirma cuenta y capacidades de adjuntos.
+    """
+    return delivery.email_handoff(data_home(), proposal_id, confirmation)
 
 
 def main():

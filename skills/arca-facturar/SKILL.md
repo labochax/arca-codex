@@ -82,6 +82,43 @@ El envío FCE comprueba esa vigencia tanto para la fecha del comprobante como pa
 el día del envío, incluso si se intenta emitir con fecha anterior. La exportación
 de un comprobante histórico usa su fecha original y el lugar conservado.
 
+## Guardar y ofrecer correo
+
+1. Usar `invoice_output_options` para proponer fecha/período del nombre y carpeta.
+   Preguntar si ambos están bien o se deben cambiar, salvo que el usuario ya haya
+   dado esas instrucciones concretas para esta factura. La fecha de archivo deriva
+   del período del servicio, no del cobro o de emisión; cambiarla solo cambia el nombre.
+2. Mostrar la ruta completa. Una carpeta sincronizada por Drive para escritorio es
+   una ruta local: no confundirla con un ID/URL de Drive ni afirmar sincronización
+   completada. Si falta la unidad/carpeta, pedir una alternativa y conservar la copia privada.
+3. Tras la aprobación, llamar `save_invoice_pdf` con los mismos parámetros y la
+   `confirmation` devuelta. Usar `remember_directory=true` solo si el usuario pide
+   guardar esa preferencia. No sobrescribir archivos diferentes, borrar copias anteriores
+   ni crear otra operación para renombrar. No guardar credenciales o diario en esa carpeta.
+4. Ofrecer enviar el PDF por Gmail; preguntar contacto y dirección de correo.
+   No asumir que la razón social del receptor identifica a la persona destinataria.
+   Resolver nombres ambiguos con contactos/historial o con el usuario. Si falta un dato,
+   `prepare_invoice_email` devuelve la pregunta y no prepara un envío.
+5. Verificar la cuenta de Gmail del host y pasarla como `sender_email` a
+   `prepare_invoice_email` para proponer asunto, cuerpo y PDF desde la factura
+   autorizada. Mostrar cuenta Gmail remitente, destinatario, asunto, cuerpo y adjunto.
+   Obtener aprobación explícita para ese mensaje; emitir o guardar NO autoriza enviar.
+6. Usar únicamente el conector Gmail del host, si dispone de envío con adjuntos.
+   Validar la propuesta aprobada con `invoice_email_handoff` y su confirmation exacta.
+   Si falla, preparar y mostrar otra propuesta. La herramienta no envía ni prueba
+   consentimiento humano. El JSON privado `gmail_payload_path` contiene la estructura MIME y los bytes exactos
+   del PDF; no mostrar base64 en el chat. El MCP ARCA no contiene credenciales Gmail
+   ni envía mensajes. Revalidar que el adjunto no cambió y que coincide con la propuesta
+   aprobada antes de usar el conector. No crear un borrador remoto sin que se haya pedido.
+7. Si Gmail no está conectado o no puede adjuntar el PDF, explicar qué falta y conservar
+   la propuesta/.eml para envío manual. No sustituir el envío por un enlace público de Drive.
+   Informar enviado solo con confirmación e ID del proveedor. Ante respuesta incierta,
+   consultar enviados antes de cualquier reintento. La oferta de correo no obliga a enviarlo.
+
+Ver [guardado y Gmail](references/ENTREGA.md). Las preferencias quedan privadas por
+perfil y no se incluyen en el repositorio. Las fechas visibles del PDF usan DD-MM-AAAA;
+el diario, SOAP y el QR conservan sus formatos técnicos.
+
 ## Errores y recuperación
 
 - Para comprobar un comprobante ya autorizado contra ARCA, usar `consult_invoice`

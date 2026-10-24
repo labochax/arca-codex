@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import re
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote
@@ -34,6 +35,11 @@ from .storage import write_private
 
 def amount(value):
     return f"{Decimal(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def display_date(value):
+    """Localize presentation only; keep ISO/ARCA dates in records, SOAP and QR."""
+    return date.fromisoformat(str(value)).strftime("%d-%m-%Y")
 
 
 def register_fonts():
@@ -220,10 +226,10 @@ def render_invoice(
         p(title, "HeaderTitle"),
         p(f"Punto de venta: {summary['point_of_sale']:05d}", "HeaderMeta"),
         p(f"Comprobante: {number}", "HeaderMeta"),
-        p(f"Fecha de emisión: {inv['invoice_date']}", "HeaderMeta"),
+        p(f"Fecha de emisión: {display_date(inv['invoice_date'])}", "HeaderMeta"),
         p(f"CUIT emisor: {issuer['cuit']}", "HeaderMeta"),
         p(f"Ingresos Brutos: {issuer['gross_income_registration']}", "HeaderMeta"),
-        p(f"Inicio de actividades: {issuer['activity_start']}", "HeaderMeta"),
+        p(f"Inicio de actividades: {display_date(issuer['activity_start'])}", "HeaderMeta"),
     ]
     header = Table(
         [
@@ -277,8 +283,10 @@ def render_invoice(
     story += [
         info,
         Spacer(1, 3 * mm),
-        p(f"Período facturado: {inv['service_from']} al {inv['service_to']}"),
-        p(f"Vencimiento para el pago: {inv['due_date']}"),
+        p(
+            f"Período facturado: {display_date(inv['service_from'])} al {display_date(inv['service_to'])}"
+        ),
+        p(f"Vencimiento para el pago: {display_date(inv['due_date'])}"),
         Spacer(1, 3 * mm),
     ]
     lines = Table(
@@ -350,7 +358,7 @@ def render_invoice(
             Spacer(1, 2 * mm),
             p("Aceptación y carácter ejecutivo - Ley 27.440, art. 5", "SectionLabel"),
             p(legal_legend, "Small"),
-            p("Plazo: Resolución 219/2025, vigente del 01/11/2025 al 31/10/2026.", "Small"),
+            p("Plazo: Resolución 219/2025, vigente del 01-11-2025 al 31-10-2026.", "Small"),
             Spacer(1, 2 * mm),
             p("Circulación - Resolución 103/2020, art. 3, inc. b", "SectionLabel"),
             p(circulation_legend(inv["transfer"]), "Small"),
@@ -366,7 +374,7 @@ def render_invoice(
                 else "Autorización de homologación"
             ),
             p(("CAE SIMULADO: " if technical_sample else "CAE: ") + result["cae"]),
-            p("Vencimiento CAE: " + result["cae_due"]),
+            p("Vencimiento CAE: " + display_date(result["cae_due"])),
             p("ARCA no se responsabiliza por los datos ingresados en el detalle de la operación."),
         ]
         if production or technical_sample:

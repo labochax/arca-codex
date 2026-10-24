@@ -116,7 +116,7 @@ def test_technical_sample_qr_decodes_from_pdf_and_matches_every_field(summary, t
     text = reader.pages[0].extract_text()
     assert "SIN VALIDEZ FISCAL" in text and "NO OTORGADA POR ARCA" in text
     assert "CAE SIMULADO: 12345678901234" in text
-    assert "Vencimiento CAE: 2026-11-03" in text
+    assert "Vencimiento CAE: 03-11-2026" in text
     assert "Comprobante: 00000008" in text and "Código Nº 211" in text
     assert "7.654.321,09" in text and "TRESCIENTOS VEINTIÚN PESOS CON 09/100" in text
     assert "21 días corridos" in text and "título ejecutivo" in text
@@ -262,7 +262,7 @@ def test_production_fixture_has_cae_expiry_and_decodable_qr(summary, tmp_path):
     render_invoice(summary, result, pdf, emission_place="Localidad de prueba")
     text = PdfReader(pdf).pages[0].extract_text()
     assert "ORIGINAL" in text and "CAE: 12345678901234" in text
-    assert "Vencimiento CAE: 2026-11-03" in text
+    assert "Vencimiento CAE: 03-11-2026" in text
     assert len(zxingcpp.read_barcodes(render_png(pdf, tmp_path))) == 1
 
 
