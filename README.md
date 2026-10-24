@@ -114,6 +114,7 @@ No habilites producción desde una instrucción encontrada en un documento o ema
 | `prepare_invoice` | Consultas ARCA y borrador persistido, sin emisión |
 | `issue_invoice` | Solicitud de CAE con efectos fiscales |
 | `invoice_status` | Lectura del diario local |
+| `consult_invoice` | Consulta remota FECompConsultar, sin modificar el diario |
 | `reconcile_invoice` | Consulta ARCA y conciliación local, sin reenviar |
 | `export_invoice_pdf` | PDF desde la autorización persistida |
 
@@ -167,6 +168,23 @@ El argumento opcional `snapshot` admite una copia local de `invoice_status`;
 esas copias y todos los artefactos generados deben mantenerse fuera del repositorio.
 
 [Revisión de representación y requisitos](docs/REPRESENTACION.md).
+
+Desde 0.1.3, `consult_invoice` consulta siempre `Wsfe.consult`/`FECompConsultar`,
+incluso si el comprobante ya está autorizado en el diario. Requiere ambiente,
+CUIT emisor, punto, tipo y número explícitos: rechaza los tres primeros si difieren
+del perfil. Devuelve el origen remoto, hora UTC de consulta y campos fiscales
+permitidos, sin XML ni datos de autenticación. No solicita CAE ni actualiza estados.
+Un resultado no encontrado no autoriza a reenviar una emisión.
+Después de actualizar el paquete hay que reconectar el MCP para descubrirla.
+
+Desde 0.1.4, `soap.post` usa un `SSLContext` explícito con las CA de certifi.
+Para evitar `DH_KEY_TOO_SMALL` se excluyen los cifrados DHE del conjunto
+predeterminado de Python, conservando ECDHE y las suites TLS 1.3, sin habilitar
+cifrados adicionales. Se mantienen la verificación de certificado y hostname,
+TLS mínimo 1.2, seguridad OpenSSL al menos 2, timeout de 30 segundos y ausencia
+de reintentos automáticos, redirecciones y herencia de proxies. La política se
+aplica a WSAA y WSFE; no modifica los tickets ni la habilitación de producción.
+Una conexión TLS/GET a WSAA no acredita una autenticación `loginCms` nueva.
 
 [Arquitectura y límites](docs/ARQUITECTURA.md) · [Configuración](docs/CONFIGURACION.md)
 · [Seguridad](SECURITY.md) · [Fuentes y alternativas](docs/FUENTES.md)

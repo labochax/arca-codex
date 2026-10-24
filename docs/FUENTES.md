@@ -14,6 +14,9 @@ modificar reglas fiscales o habilitar otros comprobantes.
 | Punto de venta por modalidad | https://ftp.afip.gob.ar/fe/emision-autorizacion/solicitud-autorizacion.asp |
 | QR | https://www.afip.gob.ar/fe/qr/ |
 | Revisión de representación 24/10/2026 | [Fuentes, controles y límites](REPRESENTACION.md) |
+| Contexto TLS explícito de HTTPX | https://www.python-httpx.org/advanced/ssl/ |
+| Política TLS y suites de Python | https://docs.python.org/3.12/library/ssl.html |
+| Nivel de seguridad OpenSSL | https://docs.openssl.org/3.0/man3/SSL_CTX_set_security_level/ |
 | Plugins de Codex | https://developers.openai.com/plugins/build/plugins |
 | MCP para Codex | https://developers.openai.com/codex/mcp |
 | SDK MCP Python | https://github.com/modelcontextprotocol/python-sdk |

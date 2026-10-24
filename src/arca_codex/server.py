@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from .engine import Engine
 from .models import Invoice
@@ -131,6 +133,77 @@ def invoice_status(draft_id: str) -> dict[str, Any]:
     """Leer el estado persistido del borrador; no consultar ni modificar ARCA."""
     e = engine()
     return e.public(e.get(draft_id))
+
+
+@mcp.tool(annotations=READ)
+def consult_invoice(
+    environment: Literal["homologacion", "produccion"],
+    issuer_cuit: str,
+    point_of_sale: Annotated[int, Field(strict=True, ge=1, le=99999)],
+    voucher_type: Literal[11, 211],
+    number: Annotated[int, Field(strict=True, ge=1, le=99999999)],
+) -> dict[str, Any]:
+    """Consultar siempre ARCA mediante FECompConsultar, incluso si ya está autorizado localmente.
+
+    Solo lectura: no consulta ni modifica el diario, no concilia ni solicita CAE.
+    Ambiente, CUIT y punto deben coincidir con el perfil; no cambia la configuración.
+    Devuelve únicamente campos fiscales permitidos, sin XML, credenciales ni tickets.
+    """
+    e = engine()
+    if environment != e.profile.environment:
+        raise ValueError("El ambiente solicitado no coincide con el perfil configurado")
+    if issuer_cuit != e.profile.issuer.cuit:
+        raise ValueError("El CUIT solicitado no coincide con el emisor configurado")
+    if point_of_sale != e.profile.point_of_sale:
+        raise ValueError("El punto de venta solicitado no coincide con el perfil configurado")
+    remote = e.client.consult(voucher_type, number)
+    fields = (
+        "Concepto",
+        "DocTipo",
+        "DocNro",
+        "CbteDesde",
+        "CbteHasta",
+        "CbteFch",
+        "ImpTotal",
+        "ImpTotConc",
+        "ImpNeto",
+        "ImpOpEx",
+        "ImpTrib",
+        "ImpIVA",
+        "MonId",
+        "MonCotiz",
+        "FchServDesde",
+        "FchServHasta",
+        "FchVtoPago",
+        "CondicionIVAReceptorId",
+        "PtoVta",
+        "CbteTipo",
+        "Resultado",
+        "EmisionTipo",
+        "CodAutorizacion",
+        "FchVto",
+    )
+    # Do not return arbitrary response fields or nested structures from a remote service.
+    fiscal = (
+        None
+        if remote is None
+        else {
+            key: remote[key]
+            for key in fields
+            if key in remote and isinstance(remote[key], (str, int, float))
+        }
+    )
+    return {
+        "source": "ARCA FECompConsultar",
+        "queried_at": datetime.now(UTC).isoformat(),
+        "environment": e.profile.environment,
+        "issuer_cuit": e.profile.issuer.cuit,
+        "point_of_sale": e.profile.point_of_sale,
+        "voucher_type": voucher_type,
+        "number": number,
+        "found": remote is not None,
+        "voucher": fiscal,
+    }
 
 
 @mcp.tool(

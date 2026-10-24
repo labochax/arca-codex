@@ -84,6 +84,13 @@ de un comprobante histórico usa su fecha original y el lugar conservado.
 
 ## Errores y recuperación
 
+- Para comprobar un comprobante ya autorizado contra ARCA, usar `consult_invoice`
+  con ambiente, CUIT emisor, punto, tipo y número explícitos. Siempre consulta
+  `FECompConsultar`; comparar receptor, importe, fecha, CAE y vencimiento con el
+  resultado local. No usar `invoice_status` como prueba remota ni asumir que
+  `reconcile_invoice` consulta ARCA cuando el registro ya está autorizado.
+  Si hay diferencias o no se encuentra, informar sin emitir ni modificar el diario.
+
 - `uncertain` o `sending`: llamar `reconcile_invoice`. Nunca reenviar, incrementar
   el número, crear otro borrador equivalente, borrar el diario ni cambiar de carpeta.
 - Comprobante no encontrado después de un envío incierto: mantener bloqueo y

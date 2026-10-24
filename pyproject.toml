@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arca-codex"
-version = "0.1.2"
+version = "0.1.4"
 description = "MCP local para Factura C y FCE C, conectado directamente a ARCA"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = "MIT"
 dependencies = [
   "mcp>=1.26,<2", "cryptography>=46,<49", "defusedxml>=0.7,<1",
   "filelock>=3.20,<4", "keyring>=25,<26", "reportlab>=4.4,<5",
-  "httpx>=0.28,<1",
+  "httpx>=0.28,<1", "certifi>=2025.1",
   "tzdata>=2025.2",
 ]
 
