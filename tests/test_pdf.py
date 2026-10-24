@@ -163,6 +163,25 @@ def test_header_positions_and_draft_has_no_authorization_or_qr(summary, tmp_path
     name = next(p for p in positions if p[0] == "EMISOR DE PRUEBA")
     cuit = next(p for p in positions if "CUIT emisor" in p[0])
     assert name[1] < letter[1] < cuit[1]
+    # All metadata in the right box share one left edge (the number used to be centered).
+    metadata = [
+        next(p for p in positions if label in p[0])
+        for label in (
+            "Punto de venta:",
+            "Comprobante:",
+            "Fecha de emisión:",
+            "CUIT emisor:",
+            "Ingresos Brutos:",
+            "Inicio de actividades:",
+        )
+    ]
+    assert max(p[1] for p in metadata) - min(p[1] for p in metadata) < 0.5
+    assert all(a[2] > b[2] for a, b in zip(metadata, metadata[1:]))
+    embedded = [
+        font.get_object().get("/FontDescriptor")
+        for font in reader.pages[0]["/Resources"]["/Font"].values()
+    ]
+    assert sum(bool(d and d.get_object().get("/FontFile2")) for d in embedded) >= 2
     assert "PENDIENTE DE CONFIRMACIÓN" in text
     assert "CAE:" not in text and "Comprobante autorizado" not in text
     assert not zxingcpp.read_barcodes(render_png(pdf, tmp_path))

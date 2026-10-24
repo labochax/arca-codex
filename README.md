@@ -186,6 +186,12 @@ de reintentos automáticos, redirecciones y herencia de proxies. La política se
 aplica a WSAA y WSFE; no modifica los tickets ni la habilitación de producción.
 Una conexión TLS/GET a WSAA no acredita una autenticación `loginCms` nueva.
 
+Desde 0.1.5, el PDF alinea todos los datos del encabezado derecho, ordena las
+columnas de importes y destaca el total. Incrusta las fuentes Vera incluidas
+en ReportLab para evitar sustituciones del lector. Borrador y comprobante final
+comparten el diseño; la autorización y el QR mantienen sus controles existentes.
+Un cambio de diseño no requiere preparar otra operación ni modificar el diario.
+
 [Arquitectura y límites](docs/ARQUITECTURA.md) · [Configuración](docs/CONFIGURACION.md)
 · [Seguridad](SECURITY.md) · [Fuentes y alternativas](docs/FUENTES.md)
 
