@@ -292,3 +292,162 @@ def test_localized_pdf_dates_do_not_mutate_iso_record(issued):
     assert (
         engine.get(draft) == before and before["payload"]["invoice"]["invoice_date"] == "2026-10-16"
     )
+
+
+def test_multiple_recipients_keep_one_message_exact_text_and_saved_attachment(issued, tmp_path):
+    engine, draft, arca = issued
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    plan = server.invoice_output_options(draft, output_directory=str(archive))
+    saved = server.save_invoice_pdf(draft, plan["confirmation"], output_directory=str(archive))
+    original_pdf = Path(saved["pdf_path"]).read_bytes()
+    journal = (engine.root / "journal.sqlite3").read_bytes()
+    recipients = [
+        {"name": "Ana Prueba", "email": "ana@example.invalid"},
+        {"name": "Equipo, Administración", "email": "admin@example.invalid"},
+        {"name": "Carlos Prueba", "email": "carlos@example.invalid"},
+    ]
+    original_recipients = copy.deepcopy(recipients)
+    subject = "Factura de prueba — revisión exacta"
+    body = "Hola equipo:\n\nTexto aprobado con acentos y <símbolos>.\n\nSaludos,\nPrueba"
+    proposal = server.prepare_invoice_email(
+        draft,
+        recipients=recipients,
+        sender_email="issuer@example.invalid",
+        subject=subject,
+        body=body,
+    )
+    assert proposal["recipients"] == recipients == original_recipients
+    assert proposal["subject"] == subject and proposal["body"] == body
+    payload = json.loads(Path(proposal["gmail_payload_path"]).read_text(encoding="utf-8"))
+    assert set(payload) == {"to", "subject", "payload", "from_address"}
+    assert payload["subject"] == subject and payload["from_address"] == "issuer@example.invalid"
+    assert payload["to"] == proposal["to"]
+    parts = payload["payload"]["parts"]
+    assert len(parts) == 2 and parts[0]["parts"][0]["body"]["content"] == body
+    assert "&lt;símbolos&gt;" in parts[0]["parts"][1]["body"]["content"]
+    assert base64.urlsafe_b64decode(parts[1]["body"]["base64_url_content"]) == original_pdf
+    assert parts[1]["filename"] == Path(saved["pdf_path"]).name
+    message = BytesParser(policy=policy.default).parsebytes(Path(proposal["eml_path"]).read_bytes())
+    assert len(message.get_all("To")) == 1 and message["Cc"] is None and message["Bcc"] is None
+    assert [(a.display_name, a.addr_spec) for a in message["To"].addresses] == [
+        (r["name"], r["email"]) for r in recipients
+    ]
+    assert len(list(message.iter_attachments())) == 1
+    assert list(message.iter_attachments())[0].get_payload(decode=True) == original_pdf
+    handoff = server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])
+    assert handoff["ready_for_gmail"] is True and handoff["sent"] is False
+    assert handoff["payload_sha256"] == delivery.file_hash(Path(handoff["gmail_payload_path"]))
+    assert handoff["recipients"] == recipients
+    assert (engine.root / "journal.sqlite3").read_bytes() == journal and arca.calls == 1
+    assert Path(saved["pdf_path"]).read_bytes() == original_pdf
+
+
+@pytest.mark.parametrize(
+    "recipients",
+    [
+        [],
+        [{"name": "Test", "email": "invalid"}],
+        [{"name": "Test", "email": "one@example.invalid,two@example.invalid"}],
+        [{"name": "Test\nBcc: other@example.invalid", "email": "one@example.invalid"}],
+        [{"name": "Test", "email": "one@example.invalid\r\nBcc: other@example.invalid"}],
+        [
+            {"name": "One", "email": "same@example.invalid"},
+            {"name": "Two", "email": "SAME@example.invalid"},
+        ],
+        [{"name": "Test", "email": "one@example.invalid", "bcc": "other@example.invalid"}],
+        [{"email": "one@example.invalid"}],
+        [{"name": "Test", "email": ["one@example.invalid"]}],
+    ],
+)
+def test_each_recipient_is_validated_without_silent_dropping_or_deduplication(issued, recipients):
+    engine, draft, arca = issued
+    before = (engine.root / "journal.sqlite3").read_bytes()
+    with pytest.raises(ValueError):
+        server.prepare_invoice_email(
+            draft, recipients=recipients, sender_email="issuer@example.invalid"
+        )
+    assert not (engine.root / "email-proposals").exists()
+    assert (engine.root / "journal.sqlite3").read_bytes() == before and arca.calls == 1
+
+
+def test_list_and_legacy_single_recipient_cannot_be_mixed(issued):
+    _, draft, _ = issued
+    with pytest.raises(ValueError, match="no ambos"):
+        server.prepare_invoice_email(
+            draft,
+            "Test",
+            "one@example.invalid",
+            recipients=[{"name": "Other", "email": "other@example.invalid"}],
+        )
+
+
+@pytest.mark.parametrize("field", ["recipients", "to", "sender_account", "subject", "body"])
+def test_confirmation_binds_every_recipient_sender_subject_and_body(issued, field):
+    engine, draft, _ = issued
+    proposal = server.prepare_invoice_email(
+        draft,
+        recipients=[
+            {"name": "One", "email": "one@example.invalid"},
+            {"name": "Two", "email": "two@example.invalid"},
+        ],
+        sender_email="issuer@example.invalid",
+        subject="Approved subject",
+        body="Approved body",
+    )
+    path = engine.root / "email-proposals" / (proposal["proposal_id"] + ".review.json")
+    review = json.loads(path.read_text())
+    if field == "recipients":
+        review["scope"][field][1]["email"] = "changed@example.invalid"
+    else:
+        review["scope"][field] = (
+            "changed@example.invalid" if field == "sender_account" else "changed"
+        )
+    path.write_text(json.dumps(review))
+    with pytest.raises(ValueError, match="propuesta cambió"):
+        server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])
+
+
+@pytest.mark.parametrize("field", ["to", "subject", "from_address", "bcc", "body", "attachment"])
+def test_handoff_binds_mime_payload_to_scope_even_if_its_receipt_hash_is_replaced(issued, field):
+    engine, draft, _ = issued
+    proposal = server.prepare_invoice_email(
+        draft,
+        recipients=[
+            {"name": "One", "email": "one@example.invalid"},
+            {"name": "Two", "email": "two@example.invalid"},
+        ],
+        sender_email="issuer@example.invalid",
+    )
+    path = Path(proposal["gmail_payload_path"])
+    payload = json.loads(path.read_text())
+    if field == "body":
+        payload["payload"]["parts"][0]["parts"][0]["body"]["content"] = "changed"
+    elif field == "attachment":
+        payload["payload"]["parts"][1]["filename"] = "changed.pdf"
+    else:
+        payload[field] = "changed@example.invalid"
+    path.write_text(json.dumps(payload))
+    review_path = engine.root / "email-proposals" / (proposal["proposal_id"] + ".review.json")
+    review = json.loads(review_path.read_text())
+    review["payload_sha256"] = delivery.file_hash(path)
+    review_path.write_text(json.dumps(review))
+    with pytest.raises(ValueError, match="no coincide"):
+        server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"subject": "Approved\r\nBcc: other@example.invalid"},
+        {"body": "bad\x00body"},
+        {"body": ""},
+        {"sender_email": "one@example.invalid,two@example.invalid"},
+    ],
+)
+def test_custom_message_and_sender_reject_invalid_controls(issued, overrides):
+    _, draft, _ = issued
+    with pytest.raises(ValueError):
+        server.prepare_invoice_email(
+            draft, recipients=[{"name": "Test", "email": "one@example.invalid"}], **overrides
+        )

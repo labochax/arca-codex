@@ -101,16 +101,33 @@ de un comprobante histórico usa su fecha original y el lugar conservado.
    `prepare_invoice_email` devuelve la pregunta y no prepara un envío.
 5. Verificar la cuenta de Gmail del host y pasarla como `sender_email` a
    `prepare_invoice_email` para proponer asunto, cuerpo y PDF desde la factura
-   autorizada. Mostrar cuenta Gmail remitente, destinatario, asunto, cuerpo y adjunto.
-   Obtener aprobación explícita para ese mensaje; emitir o guardar NO autoriza enviar.
-6. Usar únicamente el conector Gmail del host, si dispone de envío con adjuntos.
+   autorizada. Mostrar siempre remitente, Para, CC, CCO, asunto, cuerpo completo
+   y PDF adjunto (nombre, ruta y enlace local para revisión). Indicar «ninguno» en
+   CC/CCO cuando estén vacíos. No ocultar destinatarios ni truncar el mensaje.
+   Para varios destinatarios usar `recipients`, una lista de objetos `name`/`email`,
+   todos en Para; no mezclarla con los argumentos individuales. Cada dirección se
+   valida y se rechazan duplicados. Si el usuario fija asunto y cuerpo exactos,
+   pasarlos como `subject` y `body` y comprobar que coincidan con la propuesta.
+6. Ofrecer ver la misma propuesta también como borrador en Gmail. No crearlo sin
+   que el usuario acepte esa opción. Aceptar ver el borrador autoriza solo crearlo,
+   no enviarlo; mostrar el ID/enlace devuelto y conservar el PDF exacto validado.
+7. Esperar una aprobación explícita de envío **después de mostrar la propuesta**.
+   Para futuras facturas, una orden o aprobación anterior a esa visualización no
+   permite saltar esta revisión. Aprobar factura, CAE, guardado o creación de un
+   borrador nunca autoriza enviar el correo. Una aprobación posterior ya recibida
+   para esa propuesta exacta no debe pedirse otra vez.
+8. Usar únicamente el conector Gmail del host, si dispone de envío con adjuntos.
    Validar la propuesta aprobada con `invoice_email_handoff` y su confirmation exacta.
-   Si falla, preparar y mostrar otra propuesta. La herramienta no envía ni prueba
+   Si cambia remitente, Para/CC/CCO, asunto, cuerpo o adjunto (incluidos nombre o
+   bytes del PDF), preparar y mostrar la propuesta actualizada y esperar una nueva
+   aprobación antes de enviar. Si hay borrador Gmail, releerlo y compararlo con lo
+   aprobado: una edición fuera del MCP también invalida la aprobación anterior.
+   Si la validación falla, no enviar. La herramienta no envía ni prueba
    consentimiento humano. El JSON privado `gmail_payload_path` contiene la estructura MIME y los bytes exactos
    del PDF; no mostrar base64 en el chat. El MCP ARCA no contiene credenciales Gmail
    ni envía mensajes. Revalidar que el adjunto no cambió y que coincide con la propuesta
-   aprobada antes de usar el conector. No crear un borrador remoto sin que se haya pedido.
-7. Si Gmail no está conectado o no puede adjuntar el PDF, explicar qué falta y conservar
+   aprobada antes de usar el conector. Ver el circuito de borrador en la referencia.
+9. Si Gmail no está conectado o no puede adjuntar el PDF, explicar qué falta y conservar
    la propuesta/.eml para envío manual. No sustituir el envío por un enlace público de Drive.
    Informar enviado solo con confirmación e ID del proveedor. Ante respuesta incierta,
    consultar enviados antes de cualquier reintento. La oferta de correo no obliga a enviarlo.

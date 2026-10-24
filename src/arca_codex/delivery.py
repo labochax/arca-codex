@@ -15,6 +15,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from filelock import FileLock
+from pydantic import BaseModel, ConfigDict, Field
 
 from .models import digest
 from .storage import write_private
@@ -201,72 +202,65 @@ def header_value(value: str) -> str:
     return value.strip()
 
 
-def prepare_email(
-    root: Path, row: dict, attachment: Path, name: str, email: str, sender: str | None = None
-) -> dict:
-    name, email = header_value(name), header_value(email)
+class EmailRecipient(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=1, max_length=254)
+
+
+def validated_address(value: str) -> str:
+    value = header_value(value)
     try:
-        address = Address(addr_spec=email)
-        if not address.username or not address.domain or address.addr_spec != email:
+        address = Address(addr_spec=value)
+        if not address.username or not address.domain or address.addr_spec != value:
             raise ValueError("invalid")
     except (ValueError, IndexError) as exc:
-        raise ValueError("Ingresá un único correo válido, sin listas de destinatarios") from exc
-    if sender is not None:
-        sender = header_value(sender)
-        try:
-            account = Address(addr_spec=sender)
-            if not account.username or not account.domain or account.addr_spec != sender:
-                raise ValueError("invalid")
-        except (ValueError, IndexError) as exc:
-            raise ValueError("Cuenta remitente inválida") from exc
-    summary, inv = row["payload"], row["payload"]["invoice"]
-    number = f"{summary['point_of_sale']:05d}-{summary['number']:08d}"
-    kind = "FCE MiPyME C" if inv["voucher_type"] == 211 else "Factura C"
-    subject = header_value(f"{kind} {number} - {summary['issuer']['name']}")
-    start, end = (
-        date.fromisoformat(inv[key]).strftime("%d-%m-%Y") for key in ("service_from", "service_to")
-    )
-    from .pdf import amount
+        raise ValueError("Ingresá una única dirección válida por destinatario") from exc
+    return value
 
-    lines = [
-        f"Hola {name},",
-        "",
-        f"Adjunto la {kind} {number} por el siguiente servicio:",
-        inv["description"],
-        f"Período: {start} al {end}.",
-        f"Importe total: ARS $ {amount(inv['total'])}.",
-    ]
-    if inv.get("payment_received_on"):
-        paid = date.fromisoformat(inv["payment_received_on"]).strftime("%d-%m-%Y")
-        lines += [f"Corresponde al pago recibido el {paid}."]
-    lines += ["", "Saludos,", summary["issuer"]["name"]]
-    body = "\n".join(lines)
-    html_body = "<div>" + "<br>".join(html.escape(line) for line in lines) + "</div>"
-    content = attachment.read_bytes()
-    if not content.startswith(b"%PDF-"):
-        raise ValueError("El adjunto no es un PDF")
-    scope = {
-        "draft_id": row["id"],
-        "summary_hash": digest(summary),
-        "to": email,
-        "recipient_name": name,
-        "subject": subject,
-        "body": body,
-        "attachment_filename": attachment.name,
-        "attachment_sha256": hashlib.sha256(content).hexdigest(),
-        "sender_account": sender,
-    }
-    proposal = digest(scope)
+
+def email_recipients(recipients, name=None, email=None) -> list[dict]:
+    if recipients is not None:
+        if name is not None or email is not None:
+            raise ValueError("Usá recipients o el destinatario individual, no ambos")
+        if not 1 <= len(recipients) <= 100:
+            raise ValueError("Indicá entre 1 y 100 destinatarios")
+    else:
+        recipients = [dict(name=name, email=email)]
+    normalized, seen = [], set()
+    for value in recipients:
+        recipient = EmailRecipient.model_validate(value)
+        address = validated_address(recipient.email)
+        if address.casefold() in seen:
+            raise ValueError("Hay destinatarios duplicados; revisar la lista")
+        seen.add(address.casefold())
+        normalized.append(dict(name=header_value(recipient.name), email=address))
+    return normalized
+
+
+def recipient_header(recipients: list[dict]) -> str:
+    return ", ".join(str(Address(display_name=r["name"], addr_spec=r["email"])) for r in recipients)
+
+
+def email_payload(scope: dict, content: bytes) -> dict:
+    html_body = (
+        "<div>" + "<br>".join(html.escape(line) for line in scope["body"].split("\n")) + "</div>"
+    )
     payload = {
-        "to": email,
-        "subject": subject,
+        "to": scope["to"],
+        "subject": scope["subject"],
         "payload": {
             "mime_type": "multipart/mixed",
             "parts": [
                 {
                     "mime_type": "multipart/alternative",
                     "parts": [
-                        {"mime_type": "text/plain", "charset": "utf-8", "body": {"content": body}},
+                        {
+                            "mime_type": "text/plain",
+                            "charset": "utf-8",
+                            "body": {"content": scope["body"]},
+                        },
                         {
                             "mime_type": "text/html",
                             "charset": "utf-8",
@@ -277,21 +271,86 @@ def prepare_email(
                 {
                     "mime_type": "application/pdf",
                     "content_disposition": "attachment",
-                    "filename": attachment.name,
+                    "filename": scope["attachment_filename"],
                     "body": {"base64_url_content": base64.urlsafe_b64encode(content).decode()},
                 },
             ],
         },
     }
+    if scope.get("sender_account"):
+        payload["from_address"] = scope["sender_account"]
+    return payload
+
+
+def prepare_email(
+    root: Path,
+    row: dict,
+    attachment: Path,
+    name: str | None = None,
+    email: str | None = None,
+    sender: str | None = None,
+    *,
+    recipients: list[EmailRecipient | dict] | None = None,
+    subject: str | None = None,
+    body: str | None = None,
+) -> dict:
+    recipients = email_recipients(recipients, name, email)
+    to = recipient_header(recipients)
+    if sender is not None:
+        sender = validated_address(sender)
+    summary, inv = row["payload"], row["payload"]["invoice"]
+    number = f"{summary['point_of_sale']:05d}-{summary['number']:08d}"
+    kind = "FCE MiPyME C" if inv["voucher_type"] == 211 else "Factura C"
+    subject = header_value(
+        subject if subject is not None else f"{kind} {number} - {summary['issuer']['name']}"
+    )
+    start, end = (
+        date.fromisoformat(inv[key]).strftime("%d-%m-%Y") for key in ("service_from", "service_to")
+    )
+    from .pdf import amount
+
+    lines = [
+        "Hola " + ", ".join(r["name"] for r in recipients) + ",",
+        "",
+        f"Adjunto la {kind} {number} por el siguiente servicio:",
+        inv["description"],
+        f"Período: {start} al {end}.",
+        f"Importe total: ARS $ {amount(inv['total'])}.",
+    ]
+    if inv.get("payment_received_on"):
+        paid = date.fromisoformat(inv["payment_received_on"]).strftime("%d-%m-%Y")
+        lines += [f"Corresponde al pago recibido el {paid}."]
+    lines += ["", "Saludos,", summary["issuer"]["name"]]
+    body = body if body is not None else "\n".join(lines)
+    if not body.strip() or any((ord(c) < 32 and c not in "\n\t") or ord(c) == 127 for c in body):
+        raise ValueError("El cuerpo debe ser texto sin controles, con saltos de línea LF")
+    content = attachment.read_bytes()
+    if not content.startswith(b"%PDF-"):
+        raise ValueError("El adjunto no es un PDF")
+    scope = {
+        "draft_id": row["id"],
+        "summary_hash": digest(summary),
+        "to": to,
+        "recipient_name": recipients[0]["name"] if len(recipients) == 1 else None,
+        "recipients": recipients,
+        "subject": subject,
+        "body": body,
+        "attachment_filename": attachment.name,
+        "attachment_sha256": hashlib.sha256(content).hexdigest(),
+        "sender_account": sender,
+    }
+    proposal = digest(scope)
+    payload = email_payload(scope, content)
     message = EmailMessage()
-    message["To"] = Address(display_name=name, addr_spec=email)
+    message["To"] = tuple(Address(display_name=r["name"], addr_spec=r["email"]) for r in recipients)
     message["Subject"] = subject
     if sender:
-        payload["from_address"] = sender
         message["From"] = Address(display_name=summary["issuer"]["name"], addr_spec=sender)
     message["X-Unsent"] = "1"
     message.set_content(body)
-    message.add_alternative(html_body, subtype="html")
+    message.add_alternative(
+        payload["payload"]["parts"][0]["parts"][1]["body"]["content"], subtype="html"
+    )
     message.add_attachment(content, maintype="application", subtype="pdf", filename=attachment.name)
     folder = root / "email-proposals"
     # Freeze the reviewed bytes, even when the caller has not archived the invoice yet.
@@ -330,7 +389,9 @@ def email_handoff(root: Path, proposal: str, confirmation: str) -> dict:
     folder = root / "email-proposals"
     review = json.loads((folder / f"{proposal}.review.json").read_text())
     scope = review["scope"]
-    if digest(scope) != proposal or not scope.get("sender_account"):
+    if digest(scope) != proposal:
+        raise ValueError("La propuesta cambió; preparar y revisar otra propuesta")
+    if not scope.get("sender_account"):
         raise ValueError("Verificá la cuenta Gmail y prepará otra propuesta antes de aprobar")
     attachment = Path(review["attachment_path"])
     payload = folder / f"{proposal}.json"
@@ -341,10 +402,19 @@ def email_handoff(root: Path, proposal: str, confirmation: str) -> dict:
         or file_hash(payload) != review["payload_sha256"]
     ):
         raise ValueError("La propuesta o el PDF cambió; preparar y revisar otra propuesta")
+    if scope.get("recipients") is not None:
+        recipients = email_recipients(scope["recipients"])
+        if recipient_header(recipients) != scope["to"]:
+            raise ValueError("Los destinatarios no coinciden con la propuesta")
+    if json.loads(payload.read_text(encoding="utf-8")) != email_payload(
+        scope, attachment.read_bytes()
+    ):
+        raise ValueError("El mensaje o el adjunto no coincide con la propuesta")
     return {
         **scope,
         "gmail_payload_path": str(payload),
         "attachment_path": str(attachment),
+        "payload_sha256": review["payload_sha256"],
         "ready_for_gmail": True,
         "sent": False,
         "notice": "Validación local para entregar al conector Gmail; no es un envío ni prueba de consentimiento humano.",

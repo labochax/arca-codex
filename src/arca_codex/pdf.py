@@ -38,7 +38,7 @@ def amount(value):
 
 
 def display_date(value):
-    """Localize presentation only; keep ISO/ARCA dates in records, SOAP and QR."""
+    """Format presentation only; persisted fiscal dates and QR stay ISO 8601."""
     return date.fromisoformat(str(value)).strftime("%d-%m-%Y")
 
 

@@ -187,6 +187,27 @@ def test_header_positions_and_draft_has_no_authorization_or_qr(summary, tmp_path
     assert not zxingcpp.read_barcodes(render_png(pdf, tmp_path))
 
 
+@pytest.mark.parametrize("authorized", [False, True])
+def test_visible_dates_are_day_month_year_without_changing_fiscal_data(
+    summary, tmp_path, authorized
+):
+    result = make_authorization(summary, simulated_reply(summary)) if authorized else None
+    before_summary, before_result = copy.deepcopy(summary), copy.deepcopy(result)
+    path = tmp_path / "date-format.pdf"
+    render_invoice(summary, result, path, emission_place="Localidad de prueba")
+    text = " ".join(PdfReader(path).pages[0].extract_text().split())
+    assert "Fecha de emisión: 16-10-2026" in text
+    assert "Inicio de actividades: 01-01-2024" in text
+    assert "Período facturado: 01-09-2026 al 30-09-2026" in text
+    assert "Vencimiento para el pago: 16-10-2026" in text
+    assert "vigente del 01-11-2025 al 31-10-2026" in text
+    if authorized:
+        assert "Vencimiento CAE: 03-11-2026" in text
+    for value in ("2026-10-16", "2024-01-01", "2026-09-01", "2026-09-30", "2026-11-03"):
+        assert value not in text
+    assert summary == before_summary and result == before_result
+
+
 def test_missing_place_or_unbound_result_cannot_export(summary, tmp_path):
     result = make_authorization(summary, simulated_reply(summary))
     with pytest.raises(ValueError, match="lugar de emisión"):

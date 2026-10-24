@@ -195,6 +195,8 @@ columnas de importes y destaca el total. Incrusta las fuentes Vera incluidas
 en ReportLab para evitar sustituciones del lector. Borrador y comprobante final
 comparten el diseño; la autorización y el QR mantienen sus controles existentes.
 Un cambio de diseño no requiere preparar otra operación ni modificar el diario.
+Las fechas visibles del PDF usan `dd-mm-aaaa`. Los registros, la autorización y
+el contenido del QR conservan sus formatos fiscales originales.
 
 Desde 0.1.6, los PDF usan nombres por período del servicio y el sufijo de ARCA:
 `2026-09 - sep - 20123456786_211_00002_00000008.pdf` (datos de ejemplo).
@@ -208,11 +210,17 @@ con el mismo nombre no se sobrescribe. Se conservan copia privada, diario y CAE.
 Después de guardar, la skill ofrece Gmail y pregunta contacto y correo. El MCP
 prepara asunto, cuerpo y PDF adjunto desde la autorización, sin red ni credenciales
 de correo. Se verifica la cuenta Gmail del host, se muestra la propuesta y se pide
-aprobación de ese envío. `invoice_email_handoff` comprueba que mensaje y PDF no
+aprobación explícita después de mostrar la propuesta completa: remitente, Para/CC/CCO,
+asunto, cuerpo y PDF. También ofrece verla como borrador en Gmail; crearlo no autoriza
+enviarlo. Cualquier cambio requiere nueva revisión y aprobación.
+`invoice_email_handoff` comprueba que mensaje y PDF no
 cambiaron; el hash no prueba consentimiento humano. Solo el conector Gmail del
 host puede enviar. Si no está conectado o no admite adjuntos, se conserva el
 borrador .eml y se informa qué falta. El permiso de emitir no autoriza enviar.
 Las fechas visibles del PDF usan DD-MM-AAAA, conservando ISO en diario y QR.
+El flujo de correo admite varios contactos con `recipients` (`name`/`email`), todos
+en Para, y asunto/cuerpo exactos con `subject`/`body`. Valida cada dirección y vincula
+la lista completa, cuenta remitente, mensaje y adjunto a la confirmación; no envía solo.
 
 [Guardado y Gmail](skills/arca-facturar/references/ENTREGA.md).
 

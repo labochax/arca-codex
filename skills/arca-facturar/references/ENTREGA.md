@@ -25,14 +25,48 @@ Se congela una copia del PDF para esa propuesta; reexportar no cambia su adjunto
 El cuerpo usa descripción, número, período e importe y, si consta en el registro,
 indica la fecha del pago recibido. No inventar pagos ni pedir de nuevo un importe cobrado.
 
+Para varios contactos, `recipients` recibe una lista de objetos `name`/`email`, todos
+en Para. Se valida cada dirección, se rechazan duplicados e inyección de encabezados
+y no se combina con `recipient_name`/`recipient_email`. `subject` y `body` opcionales
+permiten conservar texto exacto aprobado. Todos los destinatarios, remitente, texto
+y bytes del adjunto quedan vinculados a la misma propuesta y su confirmación.
+
 El host debe disponer del plugin/conector Gmail con permiso de envío y adjuntos.
-Verificar la cuenta con la herramienta de perfil; mostrar esa cuenta junto con el
-destinatario, asunto, cuerpo y adjunto y obtener aprobación antes de crear/enviar correo.
-Pasar esa cuenta como `sender_email` al preparar y usar `invoice_email_handoff`
-con la confirmation exacta antes de entregar el JSON al conector. Esa comprobación
-rechaza cambios del mensaje o adjunto y no es prueba de aprobación humana ni envío.
-Si el usuario aprueba una propuesta sin cambios, no volver a pedir lo mismo.
-Si cambia cuenta, destinatario, texto o adjunto, presentar la nueva propuesta.
+Verificar la cuenta con la herramienta de perfil y pasarla como `sender_email` al
+preparar. Mostrar siempre una propuesta completa: cuenta remitente, todos los
+destinatarios en Para, CC y CCO (escribir «ninguno» si están vacíos), asunto, cuerpo
+íntegro y PDF definitivo adjunto con nombre, ruta, enlace local y hash verificado.
+No reemplazar el cuerpo por un resumen ni dar por revisado un adjunto solo por su nombre.
+
+La API actual `recipients` representa Para; no admite CC/CCO no vacíos. Si se piden,
+no agregarlos a mano al JSON después de `invoice_email_handoff`: ampliar primero la
+preparación y su vínculo de integridad o explicar la limitación y detener el envío.
+
+Después de mostrar la propuesta, ofrecer verla también como borrador en Gmail.
+Crear el borrador remoto solo si el usuario acepta esa oferta y el conector lo permite.
+Antes de crearlo, usar `invoice_email_handoff` para comprobar el mensaje y los bytes
+del PDF, y entregar al conector el mismo MIME validado. El token de confirmación
+valida integridad; no equivale por sí mismo a consentimiento humano para enviar.
+Mostrar el ID/enlace del borrador devuelto por Gmail. Una respuesta afirmativa a
+«¿Querés verlo como borrador?» autoriza crear ese borrador, nunca enviarlo.
+
+Para futuras facturas, esperar siempre aprobación explícita del correo **posterior
+a mostrar la propuesta**. No aceptar como sustituto una autorización anterior a esa
+visualización. La aprobación de la factura, el CAE, el archivo, un borrador o una
+factura anterior no autoriza este envío. Si ya se recibió esa aprobación posterior
+para la propuesta exacta mostrada, continuar sin pedirla otra vez.
+
+Si cambian remitente, Para/CC/CCO, asunto, cuerpo o adjunto (nombre o bytes), volver
+a preparar y mostrar todos los datos y esperar una nueva aprobación antes de enviar.
+Si se creó un borrador Gmail, releer su mensaje y adjunto mediante los identificadores
+devueltos por el conector y contrastarlos con la propuesta aprobada. No enviar a ciegas
+un borrador que pudo editarse en Gmail. Si no se puede comprobar el contenido o el PDF,
+explicar el bloqueo y no enviar. Las modificaciones externas requieren la misma revisión.
+
+Antes de enviar, revalidar con `invoice_email_handoff` y su confirmation exacta el
+mensaje y el PDF de la última propuesta aprobada. Esa comprobación rechaza cambios,
+pero no sustituye la aprobación humana ni constituye un envío. Enviar una sola vez
+mediante el conector Gmail, directamente o desde el borrador verificado y aprobado.
 No confundir `sent: false` con una respuesta de Gmail; exigir confirmación del proveedor.
 
 Si el host no tiene Gmail, no pedir claves o tokens por chat: guiar su conexión por

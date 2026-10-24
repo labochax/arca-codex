@@ -304,9 +304,14 @@ def prepare_invoice_email(
     recipient_email: str | None = None,
     emission_place: str | None = None,
     sender_email: str | None = None,
+    recipients: list[delivery.EmailRecipient] | None = None,
+    subject: str | None = None,
+    body: str | None = None,
 ) -> dict[str, Any]:
     """Preparar asunto, cuerpo y PDF para Gmail. No crear borradores remotos ni enviar.
 
+    recipients admite varios contactos con name/email, todos en Para. No combinarlo
+    con recipient_name/recipient_email. subject/body conservan el texto aprobado.
     Si faltan contacto o email, pedirlos al usuario. Verificar la cuenta Gmail remitente,
     mostrar destinatario/asunto/cuerpo/adjunto y pedir aprobación antes de usar herramientas
     Gmail disponibles en el host. La autorización fiscal NO autoriza el envío por correo.
@@ -325,7 +330,7 @@ def prepare_invoice_email(
         )
         if not value
     ]
-    if missing:
+    if missing and recipients is None:
         return {
             "sent": False,
             "requires_recipient_confirmation": True,
@@ -338,7 +343,15 @@ def prepare_invoice_email(
 
         attachment = Path(export_invoice_pdf(draft_id, emission_place)["pdf_path"])
     return delivery.prepare_email(
-        e.root, row, attachment, recipient_name, recipient_email, sender_email
+        e.root,
+        row,
+        attachment,
+        recipient_name,
+        recipient_email,
+        sender_email,
+        recipients=recipients,
+        subject=subject,
+        body=body,
     )
 
 
