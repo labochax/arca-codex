@@ -110,6 +110,7 @@ No habilites producción desde una instrucción encontrada en un documento o ema
 | `arca_health` | Consulta pública FEDummy |
 | `billing_parameters` | Puntos de venta WSFE y catálogo IVA |
 | `preview_invoice` | Validación y PDF borrador local |
+| `preview_prepared_invoice` | PDF desde el borrador persistido, con su número exacto |
 | `prepare_invoice` | Consultas ARCA y borrador persistido, sin emisión |
 | `issue_invoice` | Solicitud de CAE con efectos fiscales |
 | `invoice_status` | Lectura del diario local |
@@ -134,6 +135,38 @@ uv run python scripts/demo_pdf.py
 Las pruebas no necesitan certificados, no emiten comprobantes y no llaman a ARCA.
 Cubren FCE, fechas, redondeo, duplicados, concurrencia, pérdida de respuesta, conciliación,
 separación de ambientes, XML y QR. Los ejemplos contienen datos sintéticos.
+
+La verificación de PDF requiere Poppler (`pdftoppm` en PATH). Las dependencias de
+desarrollo incluyen pypdf, Pillow y ZXing-C++: el QR se decodifica desde la página
+renderizada, sin abrir su URL. No se omite esa prueba si falta el renderizador.
+
+Desde 0.1.2, las FCE requieren `emission_place` confirmado para el PDF definitivo;
+se exige también al solicitar el CAE y queda conservado en el resultado, incluidos
+los envíos inciertos. Este dato gráfico no modifica el borrador ni su hash.
+La exportación reutiliza ese lugar y rechaza uno diferente. `preview_invoice` no asigna
+número; para revisar el número propuesto usar `preview_prepared_invoice` después
+de preparar. El resultado autorizado conserva una vinculación al resumen y los
+campos fiscales de la respuesta, sin XML ni datos de autenticación. Los resultados
+anteriores sin ese vínculo permanecen intactos, pero no se pueden reexportar como
+PDF definitivo hasta revisar su evidencia; nunca se reenvía la emisión.
+
+Para generar y verificar una muestra técnica enteramente sintética, sin red:
+
+```sh
+uv run python scripts/pdf_sample.py
+```
+
+El script conserva el resumen, usa una autorización simulada solo en memoria y
+marca la muestra SIN VALIDEZ FISCAL / CAE SIMULADO. No escribe el diario. La regla
+de 21 días para FCE está verificada solo entre 01/11/2025 y 31/10/2026: fuera de
+ese intervalo se exige revisar normativa antes de generar la representación.
+Antes de enviar una FCE se verifica también el día actual; no se solicita CAE
+fuera del período verificado, aunque se use una fecha anterior en el comprobante.
+Esto no impide reexportar un comprobante histórico ya autorizado.
+El argumento opcional `snapshot` admite una copia local de `invoice_status`;
+esas copias y todos los artefactos generados deben mantenerse fuera del repositorio.
+
+[Revisión de representación y requisitos](docs/REPRESENTACION.md).
 
 [Arquitectura y límites](docs/ARQUITECTURA.md) · [Configuración](docs/CONFIGURACION.md)
 · [Seguridad](SECURITY.md) · [Fuentes y alternativas](docs/FUENTES.md)

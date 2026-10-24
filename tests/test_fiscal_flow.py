@@ -60,15 +60,18 @@ def test_prepare_never_emits_and_replay_is_idempotent(tmp_path, profile, invoice
     with pytest.raises(ValueError):
         e.emit(a["draft_id"], "yes")
     assert arca.calls == 0
-    assert e.emit(a["draft_id"], a["confirmation"])["state"] == "authorized"
-    e.emit(a["draft_id"], a["confirmation"])
+    assert (
+        e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")["state"]
+        == "authorized"
+    )
+    e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     assert arca.calls == 1
 
 
 def test_duplicate_with_changed_description_or_date_is_blocked(tmp_path, profile, invoice, arca):
     e = Engine(profile, tmp_path, arca)
     a = e.prepare(invoice, "monthly-demo-001")
-    e.emit(a["draft_id"], a["confirmation"])
+    e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     with pytest.raises(ValueError):
         e.prepare(
             {**invoice, "description": "retry", "invoice_date": "2026-10-15"}, "monthly-demo-002"
@@ -80,7 +83,7 @@ def test_production_disabled_by_default(tmp_path, profile, invoice, arca):
     e = Engine(profile.model_copy(update={"environment": "produccion"}), tmp_path, arca)
     a = e.prepare(invoice, "monthly-demo-001")
     with pytest.raises(ValueError, match="deshabilitada"):
-        e.emit(a["draft_id"], a["confirmation"])
+        e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     assert arca.calls == 0
 
 
@@ -88,7 +91,14 @@ def test_concurrent_emit_cannot_duplicate(tmp_path, profile, invoice, arca):
     e = Engine(profile, tmp_path, arca)
     a = e.prepare(invoice, "monthly-demo-001")
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: e.emit(a["draft_id"], a["confirmation"]), range(2)))
+        results = list(
+            pool.map(
+                lambda _: e.emit(
+                    a["draft_id"], a["confirmation"], emission_place="Localidad de prueba"
+                ),
+                range(2),
+            )
+        )
     assert [r["state"] for r in results] == ["authorized", "authorized"]
     assert arca.calls == 1
 
@@ -97,9 +107,12 @@ def test_timeout_after_authorization_requires_consult_not_retry(tmp_path, profil
     arca.fail = True
     e = Engine(profile, tmp_path, arca)
     a = e.prepare(invoice, "monthly-demo-001")
-    assert e.emit(a["draft_id"], a["confirmation"])["state"] == "uncertain"
+    assert (
+        e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")["state"]
+        == "uncertain"
+    )
     with pytest.raises(ValueError):
-        e.emit(a["draft_id"], a["confirmation"])
+        e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     assert e.reconcile(a["draft_id"])["result"]["reconciled"]
     assert arca.calls == 1
 
@@ -108,7 +121,7 @@ def test_uncertain_blocks_other_invoices(tmp_path, profile, invoice, arca):
     e = Engine(profile, tmp_path, arca)
     a = e.prepare(invoice, "monthly-demo-001")
     arca.fail = True
-    e.emit(a["draft_id"], a["confirmation"])
+    e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     with pytest.raises(ValueError, match="conciliación"):
         e.prepare({**invoice, "total": "234567.89"}, "monthly-demo-002")
     arca.remote = None
@@ -129,7 +142,7 @@ def test_reconciliation_checks_fiscal_identity(tmp_path, profile, invoice, arca,
     arca.fail = True
     e = Engine(profile, tmp_path, arca)
     a = e.prepare(invoice, "monthly-demo-001")
-    e.emit(a["draft_id"], a["confirmation"])
+    e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     arca.remote[field] = value
     with pytest.raises(ValueError, match="difiere"):
         e.reconcile(a["draft_id"])
@@ -141,7 +154,7 @@ def test_stale_sequence_requires_new_preparation(tmp_path, profile, invoice, arc
     a = e.prepare(invoice, "monthly-demo-001")
     arca.number = 8
     with pytest.raises(ValueError, match="numeración"):
-        e.emit(a["draft_id"], a["confirmation"])
+        e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     b = e.prepare(invoice, "monthly-demo-002")
     assert b["summary"]["number"] == 9 and b["draft_id"] != a["draft_id"]
     assert arca.calls == 0
@@ -157,5 +170,5 @@ def test_tampered_draft_cannot_be_emitted(tmp_path, profile, invoice, arca):
         db.execute("UPDATE drafts SET payload=?", (json.dumps(payload),))
         db.commit()
     with pytest.raises(ValueError, match="hash"):
-        e.emit(a["draft_id"], a["confirmation"])
+        e.emit(a["draft_id"], a["confirmation"], emission_place="Localidad de prueba")
     assert arca.calls == 0

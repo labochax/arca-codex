@@ -6,7 +6,10 @@ from decimal import Decimal
 
 from filelock import FileLock
 
+from . import models
+from .authorization import make_authorization
 from .models import Invoice, canonical, digest
+from .representation import acceptance_days, validate_emission_place
 from .soap import many
 from .storage import database, decode_row
 
@@ -141,7 +144,7 @@ class Engine:
             )
             db.commit()
 
-    def emit(self, draft_id, confirmation):
+    def emit(self, draft_id, confirmation, *, emission_place=None):
         if confirmation != f"EMITIR {draft_id}":
             raise ValueError("Confirmación exacta requerida para este borrador")
         if self.profile.environment == "produccion" and not self.profile.production_enabled:
@@ -166,10 +169,19 @@ class Engine:
                 raise ValueError("Cambió el perfil del emisor; prepará un nuevo borrador")
             inv = Invoice.model_validate(row["payload"]["invoice"])
             inv.validate_issue_date()
+            presentation = {}
+            if inv.voucher_type == 211:
+                # Validate before FECAESolicitar, including backdated invoices
+                # sent after the verified rule expires. Reexports stay historical.
+                acceptance_days(models.today().isoformat())
+                acceptance_days(inv.invoice_date.isoformat())
+                presentation["emission_place"] = validate_emission_place(
+                    emission_place, required=True
+                )
             if self.client.last(inv.voucher_type) + 1 != row["number"]:
                 self.set_state(draft_id, "stale")
                 raise ValueError("Cambió la numeración de ARCA; revisar y preparar con otra clave")
-            self.set_state(draft_id, "sending")  # durable BEFORE the network write
+            self.set_state(draft_id, "sending", presentation or None)  # durable BEFORE write
             try:
                 reply = self.client.authorize(inv.voucher_type, inv.detail(row["number"]))
                 header = reply.get("FeCabResp") or {}
@@ -192,17 +204,17 @@ class Engine:
                     codes = [
                         str(x.get("Code")) for x in many(d.get("Observaciones", {}).get("Obs"))
                     ]
-                    self.set_state(draft_id, "rejected", {"codes": codes})
+                    self.set_state(draft_id, "rejected", {**presentation, "codes": codes})
                 elif d.get("Resultado") == "A" and re.fullmatch(
                     r"[0-9]{14}", str(d.get("CAE", ""))
                 ):
-                    expiry = datetime.strptime(d["CAEFchVto"], "%Y%m%d").date().isoformat()
+                    authorization = make_authorization(row["payload"], reply)
                     self.set_state(
                         draft_id,
                         "authorized",
                         {
-                            "cae": d["CAE"],
-                            "cae_due": expiry,
+                            **authorization,
+                            **presentation,
                             "observation_codes": [
                                 str(x.get("Code"))
                                 for x in many(d.get("Observaciones", {}).get("Obs"))
@@ -212,7 +224,9 @@ class Engine:
                 else:
                     raise ValueError("Respuesta no concluyente")
             except Exception:
-                self.set_state(draft_id, "uncertain", {"action": "reconcile_invoice"})
+                self.set_state(
+                    draft_id, "uncertain", {**presentation, "action": "reconcile_invoice"}
+                )
                 # Do not leak authentication errors, request XML, or response payloads.
                 return self.public(self.get(draft_id))
             return self.public(self.get(draft_id))
@@ -256,8 +270,13 @@ class Engine:
                 or not re.fullmatch(r"[0-9]{14}", cae)
             ):
                 raise ValueError("No se encontró una autorización CAE válida")
-            expiry = datetime.strptime(found["FchVto"], "%Y%m%d").date().isoformat()
+            authorization = make_authorization(row["payload"], found, consulted=True)
+            presentation = (
+                {"emission_place": row["result"]["emission_place"]}
+                if (row["result"] or {}).get("emission_place")
+                else {}
+            )
             self.set_state(
-                draft_id, "authorized", {"cae": cae, "cae_due": expiry, "reconciled": True}
+                draft_id, "authorized", {**authorization, **presentation, "reconciled": True}
             )
             return self.public(self.get(draft_id))
