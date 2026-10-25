@@ -114,8 +114,15 @@ No habilites producción desde una instrucción encontrada en un documento o ema
 | `prepare_invoice` | Consultas ARCA y borrador persistido, sin emisión |
 | `issue_invoice` | Solicitud de CAE con efectos fiscales |
 | `invoice_status` | Lectura del diario local |
+| `consult_invoice` | Consulta remota FECompConsultar, sin modificar el diario |
 | `reconcile_invoice` | Consulta ARCA y conciliación local, sin reenviar |
 | `export_invoice_pdf` | PDF desde la autorización persistida |
+| `invoice_output_options` | Proponer fecha del nombre y carpeta para aprobación |
+| `save_invoice_pdf` | Guardar copia aprobada y recordar carpeta privada opcionalmente |
+| `prepare_invoice_email` | Preparar propuesta Gmail y .eml, sin envío |
+| `invoice_email_handoff` | Validar propuesta aprobada y adjunto antes de entregarlos a Gmail |
+| `invoice_email_status` | Leer el registro local de entrega, sin consultar Gmail |
+| `record_invoice_email_result` | Registrar ID del proveedor o incertidumbre del intento reservado |
 
 El hash y la frase de confirmación vinculan la solicitud con datos concretos, **no
 autentican por sí mismos a una persona**. La aprobación humana depende del cliente
@@ -167,6 +174,66 @@ El argumento opcional `snapshot` admite una copia local de `invoice_status`;
 esas copias y todos los artefactos generados deben mantenerse fuera del repositorio.
 
 [Revisión de representación y requisitos](docs/REPRESENTACION.md).
+
+Desde 0.1.3, `consult_invoice` consulta siempre `Wsfe.consult`/`FECompConsultar`,
+incluso si el comprobante ya está autorizado en el diario. Requiere ambiente,
+CUIT emisor, punto, tipo y número explícitos: rechaza los tres primeros si difieren
+del perfil. Devuelve el origen remoto, hora UTC de consulta y campos fiscales
+permitidos, sin XML ni datos de autenticación. No solicita CAE ni actualiza estados.
+Un resultado no encontrado no autoriza a reenviar una emisión.
+Después de actualizar el paquete hay que reconectar el MCP para descubrirla.
+
+Desde 0.1.4, `soap.post` usa un `SSLContext` explícito con las CA de certifi.
+Para evitar `DH_KEY_TOO_SMALL` se excluyen los cifrados DHE del conjunto
+predeterminado de Python, conservando ECDHE y las suites TLS 1.3, sin habilitar
+cifrados adicionales. Se mantienen la verificación de certificado y hostname,
+TLS mínimo 1.2, seguridad OpenSSL al menos 2, timeout de 30 segundos y ausencia
+de reintentos automáticos, redirecciones y herencia de proxies. La política se
+aplica a WSAA y WSFE; no modifica los tickets ni la habilitación de producción.
+Una conexión TLS/GET a WSAA no acredita una autenticación `loginCms` nueva.
+
+Desde 0.1.5, el PDF alinea todos los datos del encabezado derecho, ordena las
+columnas de importes y destaca el total. Incrusta las fuentes Vera incluidas
+en ReportLab para evitar sustituciones del lector. Borrador y comprobante final
+comparten el diseño; la autorización y el QR mantienen sus controles existentes.
+Un cambio de diseño no requiere preparar otra operación ni modificar el diario.
+Las fechas visibles del PDF usan `dd-mm-aaaa`. Los registros, la autorización y
+el contenido del QR conservan sus formatos fiscales originales.
+
+Desde 0.1.6, los PDF usan nombres por período del servicio y el sufijo de ARCA:
+`2026-09 - sep - 20123456786_211_00002_00000008.pdf` (datos de ejemplo).
+Se confirma la fecha de archivo y la carpeta con `invoice_output_options`, y se
+guarda con `save_invoice_pdf`. Cambiar el prefijo no cambia las fechas fiscales.
+La carpeta puede recordarse por perfil en un archivo privado; nunca se añade al
+repositorio. Una unidad de Drive para escritorio se trata como carpeta local:
+el MCP no afirma que la sincronización remota haya finalizado. Un archivo distinto
+con el mismo nombre no se sobrescribe. Se conservan copia privada, diario y CAE.
+
+Después de guardar, la skill ofrece Gmail y pregunta contacto y correo. El MCP
+prepara asunto, cuerpo y PDF adjunto desde la autorización, sin red ni credenciales
+de correo. Se verifica la cuenta Gmail del host, se muestra la propuesta y se pide
+aprobación explícita después de mostrar la propuesta completa: remitente, Para/CC/CCO,
+asunto, cuerpo y PDF. También ofrece verla como borrador en Gmail; crearlo no autoriza
+enviarlo. Cualquier cambio requiere nueva revisión y aprobación.
+`invoice_email_handoff` comprueba que mensaje y PDF no
+cambiaron; el hash no prueba consentimiento humano. Solo el conector Gmail del
+host puede enviar. Si no está conectado o no admite adjuntos, se conserva el
+borrador .eml y se informa qué falta. El permiso de emitir no autoriza enviar.
+Las fechas visibles del PDF usan DD-MM-AAAA, conservando ISO en diario y QR.
+El flujo de correo admite varios contactos con `recipients` (`name`/`email`), todos
+en Para, y asunto/cuerpo exactos con `subject`/`body`. Valida cada dirección y vincula
+la lista completa, cuenta remitente, mensaje y adjunto a la confirmación; no envía solo.
+
+Desde 0.1.7, `invoice_email_handoff` distingue revisión de envío. Por defecto solo
+habilita revisión/borrador. Tras aprobar el correo, `reserve_send=true` reserva un
+intento persistente por factura; solo `ready_for_gmail=true` permite llamar al conector.
+`record_invoice_email_result` conserva el ID confirmado por Gmail o la incertidumbre.
+Las reservas pendientes o confirmadas bloquean otro intento, incluso con otra propuesta.
+Ante incertidumbre se consulta Enviados sin reenviar; no hay desbloqueo automático.
+El MCP no transporta correo: esta protección requiere que el host respete la reserva
+y registre el resultado. `not_reserved` no descarta envíos manuales o anteriores.
+
+[Guardado y Gmail](skills/arca-facturar/references/ENTREGA.md).
 
 [Arquitectura y límites](docs/ARQUITECTURA.md) · [Configuración](docs/CONFIGURACION.md)
 · [Seguridad](SECURITY.md) · [Fuentes y alternativas](docs/FUENTES.md)

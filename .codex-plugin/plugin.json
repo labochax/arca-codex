@@ -1,6 +1,6 @@
 {
   "name": "arca-codex",
-  "version": "0.1.2",
+  "version": "0.1.7",
   "description": "Facturas C y FCE C de servicios con ARCA, credenciales locales y aprobación antes de emitir.",
   "author": {"name": "José Piccardo"},
   "license": "MIT",

@@ -32,9 +32,10 @@ wheels = [
 
 [[package]]
 name = "arca-codex"
-version = "0.1.2"
+version = "0.1.7"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "cryptography" },
     { name = "defusedxml" },
     { name = "filelock" },
@@ -56,6 +57,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2025.1" },
     { name = "cryptography", specifier = ">=46,<49" },
     { name = "defusedxml", specifier = ">=0.7,<1" },
     { name = "filelock", specifier = ">=3.20,<4" },

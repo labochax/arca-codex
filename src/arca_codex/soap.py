@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import json
+import ssl
 import time
 from datetime import UTC, datetime, timedelta
 from xml.etree import ElementTree as ET
 
+import certifi
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import pkcs7
@@ -82,10 +84,41 @@ def envelope(method, params, namespace=FE):
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
+def tls_context() -> ssl.SSLContext:
+    """Keep default TLS policy and CAs, excluding finite-field DHE only.
+
+    Some ARCA servers prefer DHE parameters rejected by OpenSSL security level 2.
+    Explicit cipher names from the default context avoid broadening its policy.
+    set_ciphers does not change TLS 1.3 suites.
+    """
+    context = ssl.create_default_context(cafile=certifi.where())
+    if context.minimum_version < ssl.TLSVersion.TLSv1_2:
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    if (
+        context.security_level < 2
+        or context.verify_mode != ssl.CERT_REQUIRED
+        or not context.check_hostname
+    ):
+        raise TransportError("El contexto TLS no cumple la política de seguridad requerida")
+    ciphers = [
+        cipher["name"]
+        for cipher in context.get_ciphers()
+        if cipher["protocol"] != "TLSv1.3"
+        and cipher.get("kea") != "kx-dhe"
+        and "DHE" not in cipher["name"].split("-")
+    ]
+    if not ciphers:
+        raise TransportError("No hay cifrados TLS predeterminados compatibles sin DHE")
+    context.set_ciphers(":".join(ciphers))
+    return context
+
+
 def post(url, action, body):
     try:
         # No redirection, SOAP logging, proxy inheritance, or automatic retry.
-        with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
+        with httpx.Client(
+            verify=tls_context(), timeout=30, follow_redirects=False, trust_env=False
+        ) as client:
             res = client.post(
                 url,
                 content=body,

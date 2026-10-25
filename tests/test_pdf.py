@@ -116,7 +116,7 @@ def test_technical_sample_qr_decodes_from_pdf_and_matches_every_field(summary, t
     text = reader.pages[0].extract_text()
     assert "SIN VALIDEZ FISCAL" in text and "NO OTORGADA POR ARCA" in text
     assert "CAE SIMULADO: 12345678901234" in text
-    assert "Vencimiento CAE: 2026-11-03" in text
+    assert "Vencimiento CAE: 03-11-2026" in text
     assert "Comprobante: 00000008" in text and "Código Nº 211" in text
     assert "7.654.321,09" in text and "TRESCIENTOS VEINTIÚN PESOS CON 09/100" in text
     assert "21 días corridos" in text and "título ejecutivo" in text
@@ -163,9 +163,49 @@ def test_header_positions_and_draft_has_no_authorization_or_qr(summary, tmp_path
     name = next(p for p in positions if p[0] == "EMISOR DE PRUEBA")
     cuit = next(p for p in positions if "CUIT emisor" in p[0])
     assert name[1] < letter[1] < cuit[1]
+    # All metadata in the right box share one left edge (the number used to be centered).
+    metadata = [
+        next(p for p in positions if label in p[0])
+        for label in (
+            "Punto de venta:",
+            "Comprobante:",
+            "Fecha de emisión:",
+            "CUIT emisor:",
+            "Ingresos Brutos:",
+            "Inicio de actividades:",
+        )
+    ]
+    assert max(p[1] for p in metadata) - min(p[1] for p in metadata) < 0.5
+    assert all(a[2] > b[2] for a, b in zip(metadata, metadata[1:]))
+    embedded = [
+        font.get_object().get("/FontDescriptor")
+        for font in reader.pages[0]["/Resources"]["/Font"].values()
+    ]
+    assert sum(bool(d and d.get_object().get("/FontFile2")) for d in embedded) >= 2
     assert "PENDIENTE DE CONFIRMACIÓN" in text
     assert "CAE:" not in text and "Comprobante autorizado" not in text
     assert not zxingcpp.read_barcodes(render_png(pdf, tmp_path))
+
+
+@pytest.mark.parametrize("authorized", [False, True])
+def test_visible_dates_are_day_month_year_without_changing_fiscal_data(
+    summary, tmp_path, authorized
+):
+    result = make_authorization(summary, simulated_reply(summary)) if authorized else None
+    before_summary, before_result = copy.deepcopy(summary), copy.deepcopy(result)
+    path = tmp_path / "date-format.pdf"
+    render_invoice(summary, result, path, emission_place="Localidad de prueba")
+    text = " ".join(PdfReader(path).pages[0].extract_text().split())
+    assert "Fecha de emisión: 16-10-2026" in text
+    assert "Inicio de actividades: 01-01-2024" in text
+    assert "Período facturado: 01-09-2026 al 30-09-2026" in text
+    assert "Vencimiento para el pago: 16-10-2026" in text
+    assert "vigente del 01-11-2025 al 31-10-2026" in text
+    if authorized:
+        assert "Vencimiento CAE: 03-11-2026" in text
+    for value in ("2026-10-16", "2024-01-01", "2026-09-01", "2026-09-30", "2026-11-03"):
+        assert value not in text
+    assert summary == before_summary and result == before_result
 
 
 def test_missing_place_or_unbound_result_cannot_export(summary, tmp_path):
@@ -243,7 +283,7 @@ def test_production_fixture_has_cae_expiry_and_decodable_qr(summary, tmp_path):
     render_invoice(summary, result, pdf, emission_place="Localidad de prueba")
     text = PdfReader(pdf).pages[0].extract_text()
     assert "ORIGINAL" in text and "CAE: 12345678901234" in text
-    assert "Vencimiento CAE: 2026-11-03" in text
+    assert "Vencimiento CAE: 03-11-2026" in text
     assert len(zxingcpp.read_barcodes(render_png(pdf, tmp_path))) == 1
 
 

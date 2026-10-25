@@ -27,11 +27,33 @@ def test_stdio_server_discovers_tools_without_credentials(tmp_path):
                     "prepare_invoice",
                     "issue_invoice",
                     "invoice_status",
+                    "consult_invoice",
                     "reconcile_invoice",
                     "export_invoice_pdf",
+                    "invoice_output_options",
+                    "save_invoice_pdf",
+                    "prepare_invoice_email",
+                    "invoice_email_handoff",
+                    "invoice_email_status",
+                    "record_invoice_email_result",
                 }
                 issue = next(t for t in tools.tools if t.name == "issue_invoice")
                 assert issue.annotations.destructiveHint is True
+                consult = next(t for t in tools.tools if t.name == "consult_invoice")
+                assert consult.annotations.readOnlyHint is True
+                assert consult.annotations.destructiveHint is False
+                assert consult.inputSchema["properties"]["number"]["minimum"] == 1
+                invalid = await session.call_tool(
+                    "consult_invoice",
+                    {
+                        "environment": "homologacion",
+                        "issuer_cuit": "20123456786",
+                        "point_of_sale": 2,
+                        "voucher_type": 211,
+                        "number": 0,
+                    },
+                )
+                assert invalid.isError
                 result = await session.call_tool("configuration_status", {})
                 assert not result.isError
                 assert result.structuredContent["configured"] is False
