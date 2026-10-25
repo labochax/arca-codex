@@ -121,6 +121,8 @@ No habilites producción desde una instrucción encontrada en un documento o ema
 | `save_invoice_pdf` | Guardar copia aprobada y recordar carpeta privada opcionalmente |
 | `prepare_invoice_email` | Preparar propuesta Gmail y .eml, sin envío |
 | `invoice_email_handoff` | Validar propuesta aprobada y adjunto antes de entregarlos a Gmail |
+| `invoice_email_status` | Leer el registro local de entrega, sin consultar Gmail |
+| `record_invoice_email_result` | Registrar ID del proveedor o incertidumbre del intento reservado |
 
 El hash y la frase de confirmación vinculan la solicitud con datos concretos, **no
 autentican por sí mismos a una persona**. La aprobación humana depende del cliente
@@ -221,6 +223,15 @@ Las fechas visibles del PDF usan DD-MM-AAAA, conservando ISO en diario y QR.
 El flujo de correo admite varios contactos con `recipients` (`name`/`email`), todos
 en Para, y asunto/cuerpo exactos con `subject`/`body`. Valida cada dirección y vincula
 la lista completa, cuenta remitente, mensaje y adjunto a la confirmación; no envía solo.
+
+Desde 0.1.7, `invoice_email_handoff` distingue revisión de envío. Por defecto solo
+habilita revisión/borrador. Tras aprobar el correo, `reserve_send=true` reserva un
+intento persistente por factura; solo `ready_for_gmail=true` permite llamar al conector.
+`record_invoice_email_result` conserva el ID confirmado por Gmail o la incertidumbre.
+Las reservas pendientes o confirmadas bloquean otro intento, incluso con otra propuesta.
+Ante incertidumbre se consulta Enviados sin reenviar; no hay desbloqueo automático.
+El MCP no transporta correo: esta protección requiere que el host respete la reserva
+y registre el resultado. `not_reserved` no descarta envíos manuales o anteriores.
 
 [Guardado y Gmail](skills/arca-facturar/references/ENTREGA.md).
 

@@ -1,6 +1,7 @@
 import base64
 import copy
 import json
+from concurrent.futures import ThreadPoolExecutor
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
@@ -140,7 +141,7 @@ def test_reexport_never_overwrites_the_default_archive_or_approved_email(issued,
     assert Path(reexport["pdf_path"]).read_bytes() != original
     assert archived.read_bytes() == original
     handoff = server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])
-    assert handoff["ready_for_gmail"]
+    assert handoff["ready_for_review"]
     assert Path(handoff["attachment_path"]).read_bytes() == archived.read_bytes()
     assert engine.get(draft)["state"] == "authorized"
 
@@ -226,7 +227,7 @@ def test_email_payload_attaches_exact_saved_pdf_and_paid_notice(issued, tmp_path
     with pytest.raises(ValueError, match="Confirmación"):
         server.invoice_email_handoff(proposal["proposal_id"], "wrong")
     handoff = server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])
-    assert handoff["ready_for_gmail"] is True and handoff["sent"] is False
+    assert handoff["ready_for_review"] is True and handoff["sent"] is False
     assert engine.get(draft) == before and arca.calls == 1
 
 
@@ -249,7 +250,7 @@ def test_email_freezes_an_unarchived_attachment_before_reexport(issued):
     Path(out["pdf_path"]).write_bytes(b"another render")
     assert attachment.read_bytes() == original
     assert server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])[
-        "ready_for_gmail"
+        "ready_for_review"
     ]
 
 
@@ -336,7 +337,7 @@ def test_multiple_recipients_keep_one_message_exact_text_and_saved_attachment(is
     assert len(list(message.iter_attachments())) == 1
     assert list(message.iter_attachments())[0].get_payload(decode=True) == original_pdf
     handoff = server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])
-    assert handoff["ready_for_gmail"] is True and handoff["sent"] is False
+    assert handoff["ready_for_review"] is True and handoff["sent"] is False
     assert handoff["payload_sha256"] == delivery.file_hash(Path(handoff["gmail_payload_path"]))
     assert handoff["recipients"] == recipients
     assert (engine.root / "journal.sqlite3").read_bytes() == journal and arca.calls == 1
@@ -451,3 +452,127 @@ def test_custom_message_and_sender_reject_invalid_controls(issued, overrides):
         server.prepare_invoice_email(
             draft, recipients=[{"name": "Test", "email": "one@example.invalid"}], **overrides
         )
+
+
+def test_review_handoff_never_reserves_or_permits_sending(issued):
+    engine, draft, arca = issued
+    proposal = server.prepare_invoice_email(
+        draft, "Test", "test@example.invalid", sender_email="issuer@example.invalid"
+    )
+    for _ in range(2):
+        review = server.invoice_email_handoff(proposal["proposal_id"], proposal["confirmation"])
+        assert review["ready_for_review"] is True and review["ready_for_gmail"] is False
+    assert server.invoice_email_status(draft)["send_state"] == "not_reserved"
+    assert not (engine.root / "email-deliveries").exists() and arca.calls == 1
+
+
+def test_reserved_send_blocks_repeat_and_uncertain_attempts_without_changing_journal(issued):
+    engine, draft, arca = issued
+    journal = (engine.root / "journal.sqlite3").read_bytes()
+    proposal = server.prepare_invoice_email(
+        draft, "Test", "test@example.invalid", sender_email="issuer@example.invalid"
+    )
+    reserved = server.invoice_email_handoff(
+        proposal["proposal_id"], proposal["confirmation"], reserve_send=True
+    )
+    assert reserved["ready_for_gmail"] is True and reserved["send_state"] == "sending"
+    repeated = server.invoice_email_handoff(
+        proposal["proposal_id"], proposal["confirmation"], reserve_send=True
+    )
+    assert repeated["ready_for_gmail"] is False and repeated["duplicate_blocked"] is True
+    assert repeated["attempt_id"] == reserved["attempt_id"]
+    uncertain = server.record_invoice_email_result(
+        proposal["proposal_id"], reserved["attempt_id"], "uncertain"
+    )
+    assert uncertain["send_state"] == "uncertain" and uncertain["sent"] is False
+    assert not server.invoice_email_handoff(
+        proposal["proposal_id"], proposal["confirmation"], reserve_send=True
+    )["ready_for_gmail"]
+    confirmed = server.record_invoice_email_result(
+        proposal["proposal_id"], reserved["attempt_id"], "sent", "gmail-fixture-001"
+    )
+    assert confirmed["sent"] is True and confirmed["provider_message_id"] == "gmail-fixture-001"
+    assert (
+        server.record_invoice_email_result(
+            proposal["proposal_id"], reserved["attempt_id"], "sent", "gmail-fixture-001"
+        )
+        == confirmed
+    )
+    for outcome, message_id in (("uncertain", None), ("sent", "different-id")):
+        with pytest.raises(ValueError, match="ya fue confirmado"):
+            server.record_invoice_email_result(
+                proposal["proposal_id"], reserved["attempt_id"], outcome, message_id
+            )
+    assert not server.invoice_email_handoff(
+        proposal["proposal_id"], proposal["confirmation"], reserve_send=True
+    )["ready_for_gmail"]
+    assert (engine.root / "journal.sqlite3").read_bytes() == journal and arca.calls == 1
+
+
+def test_concurrent_different_proposals_for_same_invoice_get_only_one_reservation(issued):
+    _, draft, _ = issued
+    proposals = [
+        server.prepare_invoice_email(draft, "Test", address, sender_email="issuer@example.invalid")
+        for address in ("one@example.invalid", "two@example.invalid")
+    ]
+
+    def reserve(proposal):
+        return server.invoice_email_handoff(
+            proposal["proposal_id"], proposal["confirmation"], reserve_send=True
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(reserve, proposals))
+    assert sum(r["ready_for_gmail"] for r in results) == 1
+    assert sum(r["duplicate_blocked"] for r in results) == 1
+    assert server.invoice_email_status(draft)["send_state"] == "sending"
+
+
+@pytest.mark.parametrize(
+    "outcome,message_id",
+    [
+        ("sent", None),
+        ("sent", ""),
+        ("sent", "bad\nID"),
+        ("uncertain", "unverified-id"),
+        ("reset", None),
+    ],
+)
+def test_send_results_require_verified_provider_id_and_cannot_reset(issued, outcome, message_id):
+    _, draft, _ = issued
+    proposal = server.prepare_invoice_email(
+        draft, "Test", "test@example.invalid", sender_email="issuer@example.invalid"
+    )
+    reservation = server.invoice_email_handoff(
+        proposal["proposal_id"], proposal["confirmation"], reserve_send=True
+    )
+    with pytest.raises(ValueError):
+        server.record_invoice_email_result(
+            proposal["proposal_id"], reservation["attempt_id"], outcome, message_id
+        )
+    assert server.invoice_email_status(draft)["send_state"] == "sending"
+
+
+def test_result_cannot_be_attributed_to_a_different_attempt_and_survives_missing_pdf(issued):
+    _, draft, _ = issued
+    proposal = server.prepare_invoice_email(
+        draft, "Test", "test@example.invalid", sender_email="issuer@example.invalid"
+    )
+    reservation = server.invoice_email_handoff(
+        proposal["proposal_id"], proposal["confirmation"], reserve_send=True
+    )
+    with pytest.raises(ValueError, match="intento reservado"):
+        server.record_invoice_email_result(
+            proposal["proposal_id"], "0" * 32, "sent", "gmail-fixture-001"
+        )
+    Path(proposal["attachment_path"]).unlink()
+    result = server.record_invoice_email_result(
+        proposal["proposal_id"], reservation["attempt_id"], "sent", "gmail-fixture-001"
+    )
+    assert result["send_state"] == "sent"
+    other = server.prepare_invoice_email(
+        draft, "Other", "other@example.invalid", sender_email="issuer@example.invalid"
+    )
+    assert server.invoice_email_handoff(
+        other["proposal_id"], other["confirmation"], reserve_send=True
+    )["duplicate_blocked"]

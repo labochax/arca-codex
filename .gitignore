@@ -23,5 +23,13 @@ build/
 private/
 credentials/
 output/
+rendered/
+previews/
+deliveries/
+email-proposals/
+email-deliveries/
+delivery-preferences.json
+email-send-*.lock
+delivery-*.lock
 config.json
 profile.json

@@ -117,7 +117,9 @@ de un comprobante histórico usa su fecha original y el lugar conservado.
    borrador nunca autoriza enviar el correo. Una aprobación posterior ya recibida
    para esa propuesta exacta no debe pedirse otra vez.
 8. Usar únicamente el conector Gmail del host, si dispone de envío con adjuntos.
-   Validar la propuesta aprobada con `invoice_email_handoff` y su confirmation exacta.
+   Consultar `invoice_email_status` antes de un nuevo envío; si el usuario, historial
+   o Gmail indican que ya se envió, recuperarlo sin reenviar. Para revisión/borrador,
+   `invoice_email_handoff` sin reserva solo devuelve `ready_for_review`.
    Si cambia remitente, Para/CC/CCO, asunto, cuerpo o adjunto (incluidos nombre o
    bytes del PDF), preparar y mostrar la propuesta actualizada y esperar una nueva
    aprobación antes de enviar. Si hay borrador Gmail, releerlo y compararlo con lo
@@ -127,6 +129,11 @@ de un comprobante histórico usa su fecha original y el lugar conservado.
    del PDF; no mostrar base64 en el chat. El MCP ARCA no contiene credenciales Gmail
    ni envía mensajes. Revalidar que el adjunto no cambió y que coincide con la propuesta
    aprobada antes de usar el conector. Ver el circuito de borrador en la referencia.
+   Solo tras la aprobación posterior, llamar `invoice_email_handoff` con su
+   confirmation exacta y `reserve_send=true`. Enviar una sola vez únicamente si
+   `ready_for_gmail=true`. Registrar con `record_invoice_email_result` el `attempt_id`
+   y el ID confirmado por Gmail, o `uncertain` si la respuesta es ambigua. Una reserva
+   `sending`/`uncertain`/`sent` bloquea otro intento, incluso con otra propuesta.
 9. Si Gmail no está conectado o no puede adjuntar el PDF, explicar qué falta y conservar
    la propuesta/.eml para envío manual. No sustituir el envío por un enlace público de Drive.
    Informar enviado solo con confirmación e ID del proveedor. Ante respuesta incierta,

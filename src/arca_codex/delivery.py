@@ -9,10 +9,11 @@ import json
 import os
 import re
 from calendar import monthrange
-from datetime import date
+from datetime import UTC, date, datetime
 from email.headerregistry import Address
 from email.message import EmailMessage
 from pathlib import Path
+from uuid import uuid4
 
 from filelock import FileLock
 from pydantic import BaseModel, ConfigDict, Field
@@ -80,7 +81,14 @@ def output_directory(root: Path, directory: str | None = None) -> Path:
     destination = destination.resolve()
     if any((parent / ".git").exists() for parent in (destination, *destination.parents)):
         raise ValueError("La carpeta de facturas debe estar fuera de un repositorio Git")
-    private_folders = ("credentials", "rendered", "previews", "deliveries", "email-proposals")
+    private_folders = (
+        "credentials",
+        "rendered",
+        "previews",
+        "deliveries",
+        "email-proposals",
+        "email-deliveries",
+    )
     if destination == root.resolve() or any(
         destination.is_relative_to((root / name).resolve()) for name in private_folders
     ):
@@ -376,12 +384,96 @@ def prepare_email(
         "confirmation": "ENVIAR CORREO " + proposal,
         "requires_sender_account": sender is None,
         "transport": "Gmail connector in the host; not this MCP",
-        "next_step": "Verificar cuenta de Gmail y destinatario; mostrar mensaje y adjunto y pedir aprobación. "
-        "Usar el conector Gmail solo después de esa aprobación. Si no está disponible, informar y conservar borrador.",
+        "next_step": "Verificar cuenta y destinatarios; mostrar mensaje y adjunto y pedir aprobación. "
+        "Revisar invoice_email_status. Para enviar, reservar con invoice_email_handoff reserve_send=true "
+        "y registrar el resultado de Gmail. Si falta el conector, informar y conservar la propuesta.",
     }
 
 
-def email_handoff(root: Path, proposal: str, confirmation: str) -> dict:
+def email_delivery_status(root: Path, draft_id: str) -> dict:
+    if not re.fullmatch(r"[0-9a-f]{64}", draft_id):
+        raise ValueError("Identificador de factura inválido")
+    path = root / "email-deliveries" / f"{draft_id}.json"
+    if not path.exists():
+        return {"draft_id": draft_id, "send_state": "not_reserved", "sent": False}
+    state = json.loads(path.read_text(encoding="utf-8"))
+    if state.get("draft_id") != draft_id or state.get("send_state") not in (
+        "sending",
+        "uncertain",
+        "sent",
+    ):
+        raise ValueError("Registro de envío inválido; revisar sin reenviar")
+    return state
+
+
+def reserve_email_send(root: Path, proposal: str, scope: dict, payload_hash: str) -> dict:
+    draft_id = scope["draft_id"]
+    email_delivery_status(root, draft_id)
+    with FileLock(str(root / f"email-send-{draft_id}.lock"), timeout=30):
+        previous = email_delivery_status(root, draft_id)
+        if previous["send_state"] != "not_reserved":
+            return {
+                **previous,
+                "ready_for_gmail": False,
+                "duplicate_blocked": True,
+                "notice": "Ya hay un envío registrado o pendiente para esta factura. Consultar Enviados; no reenviar.",
+            }
+        state = {
+            "draft_id": draft_id,
+            "proposal_id": proposal,
+            "attempt_id": uuid4().hex,
+            "send_state": "sending",
+            "sent": False,
+            "payload_sha256": payload_hash,
+            "attachment_sha256": scope["attachment_sha256"],
+            "provider_message_id": None,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        write_private(root / "email-deliveries" / f"{draft_id}.json", json.dumps(state).encode())
+        return {**state, "ready_for_gmail": True, "duplicate_blocked": False}
+
+
+def record_email_result(
+    root: Path, proposal: str, attempt_id: str, outcome: str, message_id=None
+) -> dict:
+    if not re.fullmatch(r"[0-9a-f]{64}", proposal) or not re.fullmatch(r"[0-9a-f]{32}", attempt_id):
+        raise ValueError("Identificador de intento inválido")
+    if outcome not in ("sent", "uncertain"):
+        raise ValueError("Resultado de correo inválido")
+    if outcome == "sent" and (
+        not isinstance(message_id, str)
+        or len(message_id) > 256
+        or header_value(message_id) != message_id
+    ):
+        raise ValueError("Un envío confirmado requiere el ID exacto devuelto por Gmail")
+    if outcome == "uncertain" and message_id is not None:
+        raise ValueError("Revisar en Gmail el ID antes de confirmar el envío")
+    review = json.loads(
+        (root / "email-proposals" / f"{proposal}.review.json").read_text(encoding="utf-8")
+    )
+    if digest(review["scope"]) != proposal:
+        raise ValueError("La propuesta cambió; revisar el intento")
+    draft_id = review["scope"]["draft_id"]
+    email_delivery_status(root, draft_id)  # Validate identity before composing a lock path.
+    with FileLock(str(root / f"email-send-{draft_id}.lock"), timeout=30):
+        state = email_delivery_status(root, draft_id)
+        if state.get("proposal_id") != proposal or state.get("attempt_id") != attempt_id:
+            raise ValueError("El resultado no coincide con el intento reservado")
+        if state["send_state"] == "sent":
+            if outcome == "sent" and state["provider_message_id"] == message_id:
+                return state
+            raise ValueError("El envío ya fue confirmado; no reemplazar su resultado")
+        state.update(
+            send_state=outcome,
+            sent=outcome == "sent",
+            provider_message_id=message_id,
+            updated_at=datetime.now(UTC).isoformat(),
+        )
+        write_private(root / "email-deliveries" / f"{draft_id}.json", json.dumps(state).encode())
+        return state
+
+
+def email_handoff(root: Path, proposal: str, confirmation: str, *, reserve_send=False) -> dict:
     if not re.fullmatch(r"[0-9a-f]{64}", proposal):
         raise ValueError("Identificador de propuesta inválido")
     if confirmation != "ENVIAR CORREO " + proposal:
@@ -410,12 +502,23 @@ def email_handoff(root: Path, proposal: str, confirmation: str) -> dict:
         scope, attachment.read_bytes()
     ):
         raise ValueError("El mensaje o el adjunto no coincide con la propuesta")
-    return {
+    ready = {
         **scope,
+        "proposal_id": proposal,
         "gmail_payload_path": str(payload),
         "attachment_path": str(attachment),
         "payload_sha256": review["payload_sha256"],
-        "ready_for_gmail": True,
+        "ready_for_review": True,
+        "ready_for_gmail": False,
         "sent": False,
-        "notice": "Validación local para entregar al conector Gmail; no es un envío ni prueba de consentimiento humano.",
+        "notice": "Revisión o borrador solamente. Para enviar, obtener aprobación posterior y reservar con reserve_send=true.",
     }
+    if reserve_send:
+        reservation = reserve_email_send(root, proposal, scope, review["payload_sha256"])
+        if not reservation["ready_for_gmail"]:
+            return reservation
+        ready.update(reservation)
+        ready["notice"] = (
+            "Intento único reservado. Registrar el resultado de Gmail; ante incertidumbre consultar Enviados sin reenviar."
+        )
+    return ready

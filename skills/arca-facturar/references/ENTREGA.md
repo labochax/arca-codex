@@ -45,7 +45,7 @@ preparación y su vínculo de integridad o explicar la limitación y detener el 
 Después de mostrar la propuesta, ofrecer verla también como borrador en Gmail.
 Crear el borrador remoto solo si el usuario acepta esa oferta y el conector lo permite.
 Antes de crearlo, usar `invoice_email_handoff` para comprobar el mensaje y los bytes
-del PDF, y entregar al conector el mismo MIME validado. El token de confirmación
+del PDF (sin `reserve_send`, con `ready_for_review=true`), y entregar al conector el mismo MIME validado. El token de confirmación
 valida integridad; no equivale por sí mismo a consentimiento humano para enviar.
 Mostrar el ID/enlace del borrador devuelto por Gmail. Una respuesta afirmativa a
 «¿Querés verlo como borrador?» autoriza crear ese borrador, nunca enviarlo.
@@ -63,10 +63,27 @@ devueltos por el conector y contrastarlos con la propuesta aprobada. No enviar a
 un borrador que pudo editarse en Gmail. Si no se puede comprobar el contenido o el PDF,
 explicar el bloqueo y no enviar. Las modificaciones externas requieren la misma revisión.
 
-Antes de enviar, revalidar con `invoice_email_handoff` y su confirmation exacta el
-mensaje y el PDF de la última propuesta aprobada. Esa comprobación rechaza cambios,
-pero no sustituye la aprobación humana ni constituye un envío. Enviar una sola vez
-mediante el conector Gmail, directamente o desde el borrador verificado y aprobado.
+Antes de un nuevo envío, consultar `invoice_email_status`. `not_reserved` no prueba
+que nunca se envió: contemplar la información del usuario, mensajes manuales o previos
+a este registro y consultar Enviados. Si ya se envió, recuperar su ID sin reenviar.
+
+Después de la aprobación, revalidar con `invoice_email_handoff`, confirmation exacta
+y `reserve_send=true` el mensaje y PDF de la última propuesta. Solo
+`ready_for_gmail=true` autoriza al host a realizar el único intento reservado;
+`attempt_id` identifica ese intento. En modo revisión el campo es falso y no se
+reserva nada, por lo que ver un borrador no consume un intento ni permite enviarlo.
+Enviar una sola vez mediante el conector, directamente o desde el borrador aprobado.
+El MCP registra primero `sending` en un archivo privado por factura, con bloqueo
+entre procesos: otra propuesta de esa misma factura tampoco evita el bloqueo.
+
+Registrar con `record_invoice_email_result` el `proposal_id`, `attempt_id` y resultado:
+`sent` requiere el ID exacto confirmado por Gmail; ante timeout o resultado ambiguo
+usar `uncertain`. Si una interrupción impide registrar el resultado, `sending` sigue
+bloqueado. Consultar Enviados sin reenviar; si se encuentra, registrar `sent` con su ID.
+Si no se encuentra, mantener el bloqueo y explicar que hace falta revisión manual.
+No hay liberación automática ni sustitución de un ID confirmado; un reenvío adicional
+no está habilitado por este circuito. El registro de entrega no modifica el diario
+fiscal y no sustituye la aprobación humana ni la confirmación real del proveedor.
 No confundir `sent: false` con una respuesta de Gmail; exigir confirmación del proveedor.
 
 Si el host no tiene Gmail, no pedir claves o tokens por chat: guiar su conexión por

@@ -22,7 +22,9 @@ mcp = FastMCP(
     "Ante estado uncertain usar reconcile_invoice; nunca reintentar la emisión. "
     "Antes de archivar preguntar fecha del nombre y carpeta con invoice_output_options. "
     "Después de guardar ofrecer Gmail, preguntar contacto y correo y mostrar el mensaje "
-    "y la cuenta remitente antes de pedir autorización de envío. Este MCP no envía correo.",
+    "y la cuenta remitente antes de pedir autorización de envío. Reservar un solo intento "
+    "con invoice_email_handoff reserve_send=true y registrar el ID de Gmail o la incertidumbre. "
+    "Este MCP no envía correo.",
 )
 READ = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
@@ -356,15 +358,48 @@ def prepare_invoice_email(
 
 
 @mcp.tool(annotations=LOCAL)
-def invoice_email_handoff(proposal_id: str, confirmation: str) -> dict[str, Any]:
+def invoice_email_handoff(
+    proposal_id: str, confirmation: str, reserve_send: bool = False
+) -> dict[str, Any]:
     """Validar propuesta de correo y PDF después de la aprobación para entregarlos a Gmail.
 
     NO envía ni crea borradores remotos. Requiere cuenta remitente identificada y
     confirmation exacta de prepare_invoice_email. El hash no acredita consentimiento
     humano; el host debe haber obtenido autorización para ese mensaje y adjunto.
-    Solo llamar a Gmail si está conectado y confirma cuenta y capacidades de adjuntos.
+    Por defecto valida solo revisión/borrador. Tras aprobar el envío, usar
+    reserve_send=true: reserva un único intento persistente por factura. Solo llamar
+    a Gmail si ready_for_gmail=true. Registrar el resultado; nunca repetir un intento
+    sending/uncertain/sent, tampoco creando otra propuesta de esa factura.
     """
-    return delivery.email_handoff(data_home(), proposal_id, confirmation)
+    return delivery.email_handoff(data_home(), proposal_id, confirmation, reserve_send=reserve_send)
+
+
+@mcp.tool(annotations=READ)
+def invoice_email_status(draft_id: str) -> dict[str, Any]:
+    """Leer el registro local de entrega de esta factura; no consultar ni enviar Gmail.
+
+    not_reserved no prueba ausencia de envíos anteriores/manuales: consultar el
+    historial y Enviados antes de reservar. No equivale al estado fiscal.
+    """
+    e = engine()
+    e.get(draft_id)
+    return delivery.email_delivery_status(e.root, draft_id)
+
+
+@mcp.tool(annotations=LOCAL)
+def record_invoice_email_result(
+    proposal_id: str,
+    attempt_id: str,
+    outcome: Literal["sent", "uncertain"],
+    message_id: str | None = None,
+) -> dict[str, Any]:
+    """Registrar el resultado del intento reservado; no enviar ni consultar Gmail.
+
+    sent requiere el ID exacto confirmado por el proveedor; timeout/resultado ambiguo
+    requiere uncertain. Resolver mediante Enviados, sin reintentos ni desbloqueos.
+    No reemplazar un ID confirmado ni atribuir a Gmail una confirmación inventada.
+    """
+    return delivery.record_email_result(data_home(), proposal_id, attempt_id, outcome, message_id)
 
 
 def main():
