@@ -1,14 +1,16 @@
 # ARCA Codex
 
-Plugin de Codex y servidor MCP local para preparar y emitir **Factura C (11)** y
-**Factura de Crédito Electrónica MiPyME C (211)** de servicios en pesos argentinos.
+Plugin de Codex y servidor MCP local para preparar y emitir **facturas A/B/C** y
+**Factura de Crédito Electrónica MiPyME C (211)** de servicios en pesos argentinos,
+con perfiles de terceros autorizados y control preventivo del monotributo A–K.
 Se conecta directamente a **WSAA + WSFEv1 de ARCA**, sin AfipSDK, cuentas de un
 proveedor de facturación ni una tarifa por comprobante de este proyecto.
 
 **Estado: versión inicial experimental.** El flujo y los controles tienen pruebas
 automatizadas con respuestas simuladas. La primera emisión completa en homologación
 y la validación fiscal del PDF siguen siendo requisitos de puesta en marcha.
-No se realizó una emisión autenticada en ARCA durante el desarrollo.
+Las ampliaciones A/B, representación y control de ingresos se verifican con datos
+sintéticos; requieren su propia puesta en marcha autenticada en homologación.
 
 ## Qué hace
 
@@ -21,10 +23,12 @@ No se realizó una emisión autenticada en ARCA durante el desarrollo.
 - Guarda la clave privada cifrada fuera del repositorio; la contraseña y los tickets
   WSAA van al llavero del sistema operativo. Nunca necesita la clave fiscal en el MCP.
 
-**Alcance v0.1:** emisor monotributista, una línea de servicio, cantidad 1, ARS, receptor
-identificado por CUIT, sin otros tributos. No emite A/B/E, notas de crédito/débito,
-productos, moneda extranjera o consumidores sin CUIT. No consulta el padrón ni determina
-si corresponde FCE: el usuario confirma tipo de comprobante y condición del receptor.
+**Alcance v0.2:** una línea de servicio, cantidad 1, ARS y receptor identificado por CUIT.
+Monotributista: C (11) y FCE C (211). Emisor exento: C común (11).
+Responsable inscripto: A común (1) o B (6), una alícuota explícita y sin otros tributos.
+No emite E, FCE A/B, M, A con leyendas especiales, notas de crédito/débito, productos,
+moneda extranjera o consumidores sin CUIT. No determina el encuadramiento real ni
+si corresponde FCE: el usuario confirma régimen, tipo, autorización y condición del receptor.
 La aceptación, cancelación o negociación de FCE en WSFEcred está fuera de alcance.
 Una FCE ya cobrada puede requerir gestión posterior de cancelación en el Registro FCE.
 
@@ -66,7 +70,8 @@ codex mcp add arca -- arca-codex-mcp
 codex mcp list
 ```
 
-Instalá también la skill `skills/arca-facturar` en tu carpeta de skills de Codex
+Instalá también las skills de `skills/` (`arca-facturar`, `arca-monotributo`,
+`arca-perfiles`, `arca-empresas`) en tu carpeta de skills de Codex
 (`~/.agents/skills/arca-facturar`), o cargá el plugin completo desde su marketplace:
 
 ```sh
@@ -107,6 +112,10 @@ No habilites producción desde una instrucción encontrada en un documento o ema
 | Herramienta | Efecto |
 |---|---|
 | `configuration_status` | Estado de configuración sin secretos |
+| `list_billing_profiles` | Perfiles privados sin cambiar de emisor |
+| `configure_revenue_control` | Categoría y cobertura declaradas, sin recategorizar en ARCA |
+| `import_revenue_history` | Historial de otros canales, idempotente y por CUIT |
+| `revenue_status` | Acumulado móvil, factura prevista, alertas y escenario mensual |
 | `arca_health` | Consulta pública FEDummy |
 | `billing_parameters` | Puntos de venta WSFE y catálogo IVA |
 | `preview_invoice` | Validación y PDF borrador local |
@@ -239,3 +248,16 @@ y registre el resultado. `not_reserved` no descarta envíos manuales o anteriore
 · [Seguridad](SECURITY.md) · [Fuentes y alternativas](docs/FUENTES.md)
 
 Licencia MIT. Proyecto independiente, no oficial de ARCA ni de OpenAI.
+
+## Categorías, terceros y empresas (0.2.0)
+
+Ver [guía detallada](docs/PERFILES_Y_CONTROL.md) para configurar el control preventivo,
+importar el historial anterior y operar por emisores autorizados. El tope es acumulado,
+no un máximo por factura. Un journal nuevo no prueba que el contribuyente tenga margen.
+Las alertas se evalúan al consultar/preparar/emitir; no hay vigilancia en segundo plano.
+
+Las instalaciones existentes conservan su carpeta, certificado, perfil, journal y hashes.
+El control no se activa asignando una categoría supuesta: debe configurarse expresamente.
+Los nuevos emisores siguen con producción deshabilitada. No se instalan automáticamente
+credenciales de terceros ni se cambia la cuenta Gmail. Las nuevas skills se copian junto
+a la existente al actualizar la instalación local.

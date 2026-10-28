@@ -239,12 +239,15 @@ class Wsfe:
             raise
         return many(result.get("ResultGet", {}).get("PtoVenta"))
 
-    def iva_conditions(self):
+    def iva_conditions(self, voucher_class="C"):
         return many(
-            self.call("FEParamGetCondicionIvaReceptor", {"ClaseCmp": "C"})
+            self.call("FEParamGetCondicionIvaReceptor", {"ClaseCmp": voucher_class})
             .get("ResultGet", {})
             .get("CondicionIvaReceptor")
         )
+
+    def vat_rates(self):
+        return many(self.call("FEParamGetTiposIva").get("ResultGet", {}).get("IvaTipo"))
 
     def last(self, voucher_type):
         result = self.call(

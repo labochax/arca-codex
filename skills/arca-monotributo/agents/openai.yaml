@@ -1,0 +1,4 @@
+interface:
+  display_name: "ARCA: controlar monotributo"
+  short_description: "Controlar ingresos, categorías y margen preventivo"
+  default_prompt: "Usá $arca-monotributo para revisar mi acumulado y el efecto de la próxima factura."

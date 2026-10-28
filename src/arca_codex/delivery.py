@@ -55,7 +55,7 @@ def pdf_filename(summary: dict, *, period: str | None = None, draft: bool = Fals
         summary["point_of_sale"],
         summary.get("number", 0),
     )
-    if not re.fullmatch(r"[0-9]{11}", cuit) or kind not in (11, 211):
+    if not re.fullmatch(r"[0-9]{11}", cuit) or kind not in (1, 6, 11, 211):
         raise ValueError("Identificación inválida para el nombre del PDF")
     if not 1 <= point <= 99999 or not 0 <= number <= 99999999:
         raise ValueError("Numeración inválida para el nombre del PDF")
@@ -308,7 +308,11 @@ def prepare_email(
         sender = validated_address(sender)
     summary, inv = row["payload"], row["payload"]["invoice"]
     number = f"{summary['point_of_sale']:05d}-{summary['number']:08d}"
-    kind = "FCE MiPyME C" if inv["voucher_type"] == 211 else "Factura C"
+    kind = (
+        "FCE MiPyME C"
+        if inv["voucher_type"] == 211
+        else "Factura " + {1: "A", 6: "B", 11: "C"}[inv["voucher_type"]]
+    )
     subject = header_value(
         subject if subject is not None else f"{kind} {number} - {summary['issuer']['name']}"
     )

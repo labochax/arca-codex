@@ -1,0 +1,21 @@
+---
+name: arca-monotributo
+description: Controlar ingresos del monotributo argentino, categorías A–K, historial de otros canales y efecto de una factura futura. Usar para margen disponible, alertas, proyecciones y revisión de recategorización con el MCP local ARCA Codex 0.2 o posterior.
+---
+
+# Control preventivo del monotributo
+
+1. Consultar `configuration_status` del MCP ARCA y confirmar CUIT, ambiente y régimen. Si falta el MCP o las herramientas nuevas, explicar que requiere instalar/actualizar el servidor local; no simular resultados. No solicitar secretos.
+2. Pedir la categoría efectivamente inscripta y si desea un límite preventivo personal. No cambiarla por inferencia ni confundir categoría con tipo C/211. Los topes son de ingresos acumulados, no un máximo por factura.
+3. Consultar `revenue_status`. Para configurar, mostrar categoría, umbral (80% por defecto), límite personal y cobertura antes de llamar `configure_revenue_control`.
+4. Reunir los comprobantes de TODOS los canales y puntos del mismo CUIT: Comprobantes en Línea, otros sistemas y cada perfil/PV. Pedir exportación o documentos si no están disponibles. No pedir claves ni descargar archivos fiscales en el repositorio. Importar datos revisados con `import_revenue_history`: CUIT, ambiente producción, tipo, punto, número, fecha, total ARS, clase invoice/debit/credit y origen. No suponer que un PDF local fue autorizado; contrastar con su fuente. La importación es local, no certificación remota.
+5. Confirmar `coverage_from`, `coverage_through` y `coverage_confirmed` solo después de que el usuario confirme que ese intervalo cubre todos sus ingresos relevantes. Un journal nuevo, una consulta al último número o FECompConsultar individual no prueba historial completo. No declarar «podés facturar hasta X» si la cobertura no está confirmada. Perfiles separados no se consolidan solos; importar la información del resto sin duplicarla.
+6. Mostrar ventana de últimos 12 meses por fecha de comprobante, suma conocida, emisiones inciertas, importe previsto, margen preventivo, fuente y fecha de revisión de la escala. No usar enero–diciembre, fecha de cobro ni una cuota mensual como sustitutos. Identificar este cálculo como control preventivo; para imputaciones por devengamiento distintas consultar al contador.
+7. Para una factura futura pasarla completa como `candidate` a `revenue_status`; mostrar las advertencias. Si el usuario pide escenario mensual usar `monthly_projection`, aclarando que anualiza 12 importes iguales y NO predice el acumulado móvil futuro ni cobros. No afirmar que calcula todos los parámetros fiscales: faltan energía, alquiler, superficie y otras causales.
+8. Distinguir aproximación al tope, superación de categoría (revisar recategorización) y superación de categoría K (revisar exclusión/pase a régimen general). No recategorizar en ARCA ni cambiar régimen automáticamente. No omitir, fraccionar artificialmente, trasladar a otro CUIT ni diferir facturas para evitar límites.
+9. No descontar notas de crédito automáticamente: el monitor las informa por separado y conserva una exposición bruta conservadora. Pedir revisar imputación si hay créditos, diferencias o ingresos no documentados por estos tipos de comprobante.
+10. Para emitir seguir también `arca-facturar`: preparar y mostrar resumen y control. Si hay advertencias, pedir aprobación de ellas además de la factura; pasar `revenue_confirmation` exacta vigente a `issue_invoice`. Si cambia historial/categoría/fecha/importe, recalcular y volver a mostrar. El token no acredita consentimiento humano. No eludir bloqueos por cobertura incompleta, escala vencida, conflictos o máximo K.
+
+Las alertas aparecen al consultar/preparar/emitir; no hay vigilancia en segundo plano ni avisos programados por instalar esta skill. No modificar una factura ya autorizada para configurar este control.
+
+Fuentes primarias: [categorías](https://www.arca.gob.ar/monotributo/categorias.asp), [recategorización](https://www.arca.gob.ar/monotributo/ayuda/recategorizacion.asp), [exclusión](https://www.arca.gob.ar/monotributo/ayuda/exclusion.asp). Verificar cambios antes de actualizar la escala; nunca prolongar su revisión local por conjetura.

@@ -1,6 +1,7 @@
 import base64
 import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from cryptography import x509
@@ -109,3 +110,63 @@ def test_local_key_encryption_csr_and_wsaa_signature(tmp_path, profile, monkeypa
     assert a == b == {"Token": "TEST_TOKEN", "Sign": "TEST_SIGN", "Cuit": 20123456786}
     assert len(calls) == 1
     assert all(b"TEST_TOKEN" not in f.read_bytes() for f in tmp_path.rglob("*") if f.is_file())
+
+
+def test_import_existing_pair_reencrypts_and_preserves_originals(tmp_path, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    from arca_codex.credentials import import_pair
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "REPRESENTANTE DE PRUEBA"),
+            x509.NameAttribute(NameOID.SERIAL_NUMBER, "CUIT 20123456786"),
+        ]
+    )
+    now = datetime.now(UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(123)
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .sign(key, hashes.SHA256())
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    keyfile, certfile = source / "key.pem", source / "cert.pem"
+    raw = key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+    keyfile.write_bytes(raw)
+    certfile.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+
+    class Backend:
+        values = {}
+
+        def get_password(self, service, account):
+            return self.values.get((service, account))
+
+        def set_password(self, service, account, value):
+            self.values[service, account] = value
+
+    backend = Backend()
+    monkeypatch.setattr("arca_codex.credentials.secure_keyring", lambda: backend)
+    root = tmp_path / "profile"
+    result = import_pair(root, "20123456786", "homologacion", certfile, keyfile, "")
+    assert keyfile.read_bytes() == raw
+    encrypted = Path(result["encrypted_key_path"]).read_bytes()
+    assert b"BEGIN ENCRYPTED PRIVATE KEY" in encrypted
+    assert encrypted != raw
+    with pytest.raises(ValueError, match="no se sobrescriben"):
+        import_pair(root, "20123456786", "homologacion", certfile, keyfile, "")
+    with pytest.raises(ValueError, match="CUIT"):
+        import_pair(tmp_path / "other", "30712345671", "homologacion", certfile, keyfile, "")
