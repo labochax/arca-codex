@@ -170,3 +170,40 @@ def test_import_existing_pair_reencrypts_and_preserves_originals(tmp_path, monke
         import_pair(root, "20123456786", "homologacion", certfile, keyfile, "")
     with pytest.raises(ValueError, match="CUIT"):
         import_pair(tmp_path / "other", "30712345671", "homologacion", certfile, keyfile, "")
+
+
+def test_wsaa_shared_certificate_cache_keeps_represented_cuit(tmp_path, profile, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    backend = MemoryKeyring()
+    cert = SimpleNamespace(fingerprint=lambda algorithm: b"test-fingerprint")
+    monkeypatch.setattr(soap, "load_pair", lambda p: (None, cert))
+    monkeypatch.setattr(soap, "secure_keyring", lambda: backend)
+
+    def never_post(*args):
+        raise AssertionError("A valid cached ticket must not trigger WSAA")
+
+    monkeypatch.setattr(soap, "post", never_post)
+    fingerprint = b"test-fingerprint".hex()
+    legacy = f"ticket:homologacion:{profile.issuer.cuit}:{fingerprint}:wsfe"
+    backend.set_password(
+        SERVICE,
+        legacy,
+        json.dumps(
+            {
+                "token": "TEST",
+                "sign": "SIGN",
+                "expirationTime": (datetime.now(UTC) + timedelta(hours=2)).isoformat(),
+            }
+        ),
+    )
+    first = Wsaa(profile, tmp_path).ticket()
+    other = profile.model_copy(deep=True)
+    other.issuer.cuit = "30712345671"
+    second = Wsaa(other, tmp_path / "other").ticket()
+    assert first["Token"] == second["Token"] == "TEST"
+    assert first["Cuit"] == 20123456786
+    assert second["Cuit"] == 30712345671
+    assert backend.get_password(SERVICE, legacy)
+    assert len(backend.items) == 2

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import ssl
+import tempfile
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import certifi
@@ -146,19 +149,28 @@ class Wsaa:
         self.profile, self.root = profile, root
 
     def ticket(self):
-        with FileLock(str(self.root / "wsaa.lock"), timeout=45):
-            key, cert = load_pair(self.profile)
-            fingerprint = cert.fingerprint(hashes.SHA256()).hex()
-            cache_id = (
-                f"ticket:{self.profile.environment}:{self.profile.issuer.cuit}:{fingerprint}:wsfe"
-            )
+        key, cert = load_pair(self.profile)
+        fingerprint = cert.fingerprint(hashes.SHA256()).hex()
+        # One TA per certificate/environment/service, regardless of represented CUIT.
+        user_tag = hashlib.sha256(str(Path.home()).encode()).hexdigest()[:16]
+        lock_dir = Path(tempfile.gettempdir()) / f"arca-codex-wsaa-{user_tag}"
+        if lock_dir.is_symlink():
+            raise ValueError("Directorio de bloqueo WSAA inválido")
+        lock_dir.mkdir(mode=0o700, exist_ok=True)
+        with FileLock(str(lock_dir / f"{self.profile.environment}-{fingerprint}.lock"), timeout=45):
+            cache_id = f"ticket:{self.profile.environment}:{fingerprint}:wsfe"
             backend = secure_keyring()
             cached = backend.get_password(SERVICE, cache_id)
+            if not cached:
+                # Preserve current valid tickets from older installations.
+                legacy_id = f"ticket:{self.profile.environment}:{self.profile.issuer.cuit}:{fingerprint}:wsfe"
+                cached = backend.get_password(SERVICE, legacy_id)
             if cached:
                 ticket = json.loads(cached)
                 if datetime.fromisoformat(ticket["expirationTime"]) > datetime.now(UTC) + timedelta(
                     minutes=3
                 ):
+                    backend.set_password(SERVICE, cache_id, cached)
                     return {
                         "Token": ticket["token"],
                         "Sign": ticket["sign"],

@@ -98,7 +98,10 @@ No comparte su clave fiscal por chat. La confirmación local no crea ni sustituy
 relación. `doctor` consulta WSFE para ese emisor; un FEDummy exitoso no prueba delegación.
 Cada perfil conserva certificados, passwords en llavero, journal, política, salidas y
 registro de correo separados. Para nuevos certificados las cuentas del llavero incluyen
-el perfil; los CSRs anteriores conservan su cuenta original. No se rotan claves al actualizar.
+el perfil; los CSRs anteriores conservan su cuenta original. No se rotan claves al actualizar. Los tickets WSAA se reutilizan por certificado,
+ambiente y servicio, con bloqueo compartido entre perfiles; `Auth.Cuit` conserva el
+representado de cada llamada. Un ticket anterior válido se migra sin borrarlo ni
+forzar otro login. No borrar tickets ni reintentar si ARCA informa `coe.alreadyAuthenticated`.
 
 Si el representante ya tiene certificado y clave, usar `arca-codex --profile cliente-homo setup --existing`.
 Ingresar sus rutas y contraseña solo en la terminal local. El programa verifica CUIT, par,
@@ -156,3 +159,5 @@ Fuentes primarias verificadas el 28/10/2026:
 - https://www.afip.gob.ar/ws/documentacion/manuales/manual-desarrollador-ARCA-COMPG.pdf
 - https://www.afip.gob.ar/ws/WSAA/wsaa_obtener_certificado_produccion.pdf
 - RG 5614/2024, transparencia fiscal, Biblioteca Electrónica de ARCA.
+
+- https://www.afip.gob.ar/ws/WSAA/Especificacion_Tecnica_WSAA_1.2.2.pdf
