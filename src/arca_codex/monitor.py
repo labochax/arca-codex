@@ -66,7 +66,8 @@ def configure(root, profile, policy):
     ):
         raise ValueError("La cobertura confirmada requiere fechas válidas desde/hasta")
     data = {"issuer_cuit": profile.issuer.cuit, "policy": policy.model_dump(mode="json")}
-    write_private(root / "revenue-policy.json", json.dumps(data).encode())
+    with FileLock(str(root / "issuance.lock"), timeout=45):
+        write_private(root / "revenue-policy.json", json.dumps(data).encode())
     return {"configured": True, **data, "notice": "No modifica la categoría registrada en ARCA"}
 
 
@@ -96,7 +97,7 @@ class RevenueEntry(StrictModel):
 def import_entries(root, profile, entries):
     if profile.environment != "produccion":
         raise ValueError("El historial real se importa únicamente en un perfil de producción")
-    with FileLock(str(root / "revenue.lock")), database(root) as db:
+    with FileLock(str(root / "issuance.lock"), timeout=45), database(root) as db:
         db.execute(
             "CREATE TABLE IF NOT EXISTS revenue_imports (identity TEXT PRIMARY KEY, data TEXT NOT NULL)"
         )
