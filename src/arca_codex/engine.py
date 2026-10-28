@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from filelock import FileLock
 
-from . import models
+from . import models, monitor
 from .authorization import make_authorization
 from .models import Invoice, canonical, digest
 from .representation import acceptance_days, validate_emission_place
@@ -19,12 +19,29 @@ class Engine:
         self.profile, self.root, self.client = profile, root, client
         self.tenant = f"{profile.environment}:{profile.issuer.cuit}:{profile.point_of_sale}"
 
+    def validate_regime(self, inv):
+        regime = self.profile.issuer.tax_regime
+        if regime == "responsable_inscripto":
+            if inv.voucher_type not in (1, 6):
+                raise ValueError(
+                    "Responsable inscripto: usar A/B en este alcance; FCE A/B aún no soportada"
+                )
+            if inv.voucher_type == 1 and not self.profile.ordinary_a_authorized:
+                raise ValueError(
+                    "Confirmar habilitación ARCA para A común; no sustituir A con leyenda o M"
+                )
+        elif regime == "exento" and inv.voucher_type != 11:
+            raise ValueError("Emisor exento: solo Factura C común en este alcance")
+        elif regime == "monotributo" and inv.voucher_type not in (11, 211):
+            raise ValueError("Monotributista: usar C o FCE C, sin IVA discriminado")
+
     def lock(self):
         return FileLock(str(self.root / "issuance.lock"), timeout=45)
 
     def preview(self, data):
         inv = Invoice.model_validate(data)
         inv.validate_issue_date()
+        self.validate_regime(inv)
         return {
             "environment": self.profile.environment,
             "issuer": self.profile.issuer.model_dump(mode="json"),
@@ -76,11 +93,15 @@ class Engine:
                 or p.get("FchBaja") not in (None, "", "NULL", "00000000")
             ):
                 raise ValueError("Punto de venta ausente, bloqueado o dado de baja en WSFE")
-            conditions = self.client.iva_conditions()
             inv = Invoice.model_validate(payload["invoice"])
+            conditions = (
+                self.client.iva_conditions()
+                if inv.voucher_class == "C"
+                else self.client.iva_conditions(inv.voucher_class)
+            )
             condition = next((c for c in conditions if int(c["Id"]) == inv.recipient_iva_id), None)
             if not condition:
-                raise ValueError("Condición IVA no habilitada por ARCA para clase C")
+                raise ValueError("Condición IVA no habilitada por ARCA para esta clase")
             # Names in PDF must agree with the official parameter table.
             if (
                 condition.get("Desc", "").casefold().strip()
@@ -89,6 +110,10 @@ class Engine:
                 raise ValueError(
                     f"Usá la descripción oficial para esa condición IVA: {condition.get('Desc')}"
                 )
+            if inv.voucher_type in (1, 6):
+                rates = self.client.vat_rates()
+                if not any(int(r["Id"]) == inv.vat_id for r in rates):
+                    raise ValueError("Alícuota IVA no disponible en ARCA")
             number = self.client.last(inv.voucher_type) + 1
             payload["number"] = number
             payload["request_key"] = request_key
@@ -134,6 +159,11 @@ class Engine:
             "summary": row["payload"],
             "confirmation": f"EMITIR {row['id']}",
             "result": row["result"],
+            "revenue_control": monitor.report(
+                self.root, self.profile, candidate=Invoice.model_validate(row["payload"]["invoice"])
+            )
+            if row["state"] == "prepared"
+            else None,
         }
 
     def set_state(self, draft_id, state, result=None):
@@ -144,7 +174,7 @@ class Engine:
             )
             db.commit()
 
-    def emit(self, draft_id, confirmation, *, emission_place=None):
+    def emit(self, draft_id, confirmation, *, emission_place=None, revenue_confirmation=None):
         if confirmation != f"EMITIR {draft_id}":
             raise ValueError("Confirmación exacta requerida para este borrador")
         if self.profile.environment == "produccion" and not self.profile.production_enabled:
@@ -169,6 +199,8 @@ class Engine:
                 raise ValueError("Cambió el perfil del emisor; prepará un nuevo borrador")
             inv = Invoice.model_validate(row["payload"]["invoice"])
             inv.validate_issue_date()
+            self.validate_regime(inv)
+            monitor.check_issue(self.root, self.profile, inv, revenue_confirmation)
             presentation = {}
             if inv.voucher_type == 211:
                 # Validate before FECAESolicitar, including backdated invoices
@@ -255,6 +287,10 @@ class Engine:
                     actual = {str(o["Id"]): str(o["Valor"]) for o in many(opts.get("Opcional"))}
                     wanted = {str(o["Id"]): str(o["Valor"]) for o in value["Opcional"]}
                     match = actual == wanted
+                elif key == "Iva":
+                    from .authorization import _equal
+
+                    match = key in found and _equal(key, found[key], value)
                 elif key.startswith("Imp") or key == "MonCotiz":
                     match = key in found and Decimal(str(found[key])) == Decimal(str(value))
                 else:

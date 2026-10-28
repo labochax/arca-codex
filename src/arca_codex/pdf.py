@@ -220,7 +220,13 @@ def render_invoice(
     emisor = [
         p(issuer["name"], "Heading2"),
         p(issuer["address"]),
-        p("RESPONSABLE MONOTRIBUTO"),
+        p(
+            {
+                "monotributo": "RESPONSABLE MONOTRIBUTO",
+                "responsable_inscripto": "IVA RESPONSABLE INSCRIPTO",
+                "exento": "IVA EXENTO",
+            }[issuer.get("tax_regime", "monotributo")]
+        ),
     ]
     document = [
         p(title, "HeaderTitle"),
@@ -235,7 +241,10 @@ def render_invoice(
         [
             [
                 emisor,
-                [p("C", "Letter"), p(f"Código Nº {inv['voucher_type']:03d}", "VoucherCode")],
+                [
+                    p({1: "A", 6: "B", 11: "C", 211: "C"}[inv["voucher_type"]], "Letter"),
+                    p(f"Código Nº {inv['voucher_type']:03d}", "VoucherCode"),
+                ],
                 document,
             ]
         ],
@@ -268,6 +277,8 @@ def render_invoice(
         p(inv["recipient_iva_label"]),
         p(f"Condición de venta: {inv['sale_condition']}"),
     ]
+    if inv["recipient_iva_id"] == 5:
+        receptor.append(p("A CONSUMIDOR FINAL"))
     info = Table([[receptor]], colWidths=[174 * mm])
     info.setStyle(
         TableStyle(
@@ -300,8 +311,16 @@ def render_invoice(
             [
                 p(inv["description"]),
                 p("1 unidad", "Quantity"),
-                p("$ " + amount(inv["total"]), "Money"),
-                p("$ " + amount(inv["total"]), "Money"),
+                p(
+                    "$ "
+                    + amount(inv.get("net_amount") if inv["voucher_type"] == 1 else inv["total"]),
+                    "Money",
+                ),
+                p(
+                    "$ "
+                    + amount(inv.get("net_amount") if inv["voucher_type"] == 1 else inv["total"]),
+                    "Money",
+                ),
             ],
         ],
         colWidths=[84 * mm, 23 * mm, 34 * mm, 33 * mm],
@@ -323,10 +342,28 @@ def render_invoice(
     story += [
         lines,
         Spacer(1, 2 * mm),
-        p(f"Subtotal: $ {amount(inv['total'])}", "Money"),
+        p(
+            f"Subtotal: $ {amount(inv['net_amount'] if inv['voucher_type'] == 1 else inv['total'])}",
+            "Money",
+        ),
         p("Otros tributos: $ 0,00", "Money"),
         Spacer(1, 2 * mm),
     ]
+    if inv["voucher_type"] in (1, 6):
+        story += [
+            p(f"Neto gravado: $ {amount(inv['net_amount'])}", "Money"),
+            p(
+                f"IVA ({ {3: '0', 4: '10,5', 5: '21', 6: '27'}[inv['vat_id']] }%): $ {amount(inv['vat_amount'])}",
+                "Money",
+            ),
+        ]
+        if inv["voucher_type"] == 1 and inv["recipient_iva_id"] == 6:
+            story.append(
+                p(
+                    "El crédito fiscal discriminado en el presente comprobante, sólo podrá ser computado a efectos del Régimen de Sostenimiento e Inclusión Fiscal para Pequeños Contribuyentes de la Ley Nº 27.618",
+                    "Small",
+                )
+            )
     total = Table([[p(f"TOTAL ARS $ {amount(inv['total'])}", "Total")]], colWidths=[174 * mm])
     total.setStyle(
         TableStyle(
@@ -340,6 +377,13 @@ def render_invoice(
         )
     )
     story += [total, Spacer(1, 2 * mm)]
+    if inv["voucher_type"] == 6:
+        story += [
+            p("Régimen de Transparencia Fiscal al Consumidor (Ley 27.743)", "Small"),
+            p(f"IVA contenido: $ {amount(inv['vat_amount'])}", "Small"),
+            p("Otros Impuestos Nacionales Indirectos: $ 0,00", "Small"),
+            Spacer(1, 2 * mm),
+        ]
     if is_fce:
         story.append(p("Son: " + amount_in_words(inv["total"])))
     if inv.get("commercial_reference"):

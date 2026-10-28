@@ -20,6 +20,10 @@ def test_stdio_server_discovers_tools_without_credentials(tmp_path):
                 names = {t.name for t in tools.tools}
                 assert names == {
                     "configuration_status",
+                    "configure_revenue_control",
+                    "import_revenue_history",
+                    "revenue_status",
+                    "list_billing_profiles",
                     "arca_health",
                     "billing_parameters",
                     "preview_invoice",

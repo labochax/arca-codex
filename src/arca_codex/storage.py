@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import tempfile
 from contextlib import contextmanager
@@ -14,6 +15,11 @@ def data_home() -> Path:
     path = (
         Path(os.environ.get("ARCA_CODEX_HOME", Path.home() / ".arca-codex")).expanduser().resolve()
     )
+    profile_name = os.environ.get("ARCA_CODEX_PROFILE")
+    if profile_name:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,47}", profile_name):
+            raise ValueError("Nombre de perfil inválido: usar letras, dígitos, _ o -")
+        path = (path / "profiles" / profile_name).resolve()
     # Credentials and journals must not live inside a Git working tree.
     if any((p / ".git").exists() for p in [path, *path.parents]):
         raise ValueError("ARCA_CODEX_HOME debe estar fuera de cualquier repositorio Git")

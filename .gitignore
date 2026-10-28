@@ -33,3 +33,8 @@ email-send-*.lock
 delivery-*.lock
 config.json
 profile.json
+
+revenue-policy.json
+revenue-*.json
+profiles/
+keyring-account.txt

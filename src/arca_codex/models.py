@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -49,7 +49,14 @@ class Issuer(StrictModel):
     address: str = Field(min_length=1, max_length=240)
     gross_income_registration: str = Field(min_length=1, max_length=80)
     activity_start: date
+    tax_regime: Literal["monotributo", "responsable_inscripto", "exento"] = "monotributo"
     _cuit = field_validator("cuit")(cuit_valid)
+
+    def model_dump(self, *args, **kwargs):
+        result = super().model_dump(*args, **kwargs)
+        if self.tax_regime == "monotributo":
+            result.pop("tax_regime", None)  # Preserve historical summary hashes.
+        return result
 
 
 class Profile(StrictModel):
@@ -60,18 +67,34 @@ class Profile(StrictModel):
     certificate_path: str
     encrypted_key_path: str
     keyring_account: str
+    certificate_cuit: str | None = None
+    delegation_confirmed: bool = False
+    ordinary_a_authorized: bool = False
+
+    @model_validator(mode="after")
+    def represented_issuer(self):
+        if self.certificate_cuit is not None:
+            cuit_valid(self.certificate_cuit)
+            if self.certificate_cuit != self.issuer.cuit and not self.delegation_confirmed:
+                raise ValueError(
+                    "Confirmá la delegación WSFE del emisor al titular del certificado"
+                )
+        return self
 
 
 class Invoice(StrictModel):
     """Deliberately narrow: one service line, ARS, identified domestic recipient."""
 
-    voucher_type: Literal[11, 211]
+    voucher_type: Literal[1, 6, 11, 211]
     recipient_cuit: str
     recipient_name: str = Field(min_length=1, max_length=120)
     recipient_address: str = Field(min_length=1, max_length=240)
     recipient_iva_id: int = Field(ge=1, le=99)
     recipient_iva_label: str = Field(min_length=1, max_length=100)
     total: str
+    net_amount: str | None = None
+    vat_id: Literal[3, 4, 5, 6] | None = None
+    vat_amount: str | None = None
     invoice_date: date
     service_from: date
     service_to: date
@@ -95,8 +118,44 @@ class Invoice(StrictModel):
             raise ValueError("Importe debe ser positivo")
         return f"{Decimal(value):.2f}"
 
+    @field_validator("net_amount", "vat_amount")
+    @classmethod
+    def optional_money(cls, value):
+        if value is None:
+            return None
+        if not re.fullmatch(r"[0-9]{1,13}(\.[0-9]{1,2})?", value):
+            raise ValueError("Neto e IVA deben ser textos decimales positivos o cero")
+        return f"{Decimal(value):.2f}"
+
+    def model_dump(self, *args, **kwargs):
+        result = super().model_dump(*args, **kwargs)
+        if self.voucher_type in (11, 211):
+            for key in ("net_amount", "vat_id", "vat_amount"):
+                result.pop(key, None)  # Byte-compatible historical C summaries.
+        return result
+
+    @property
+    def voucher_class(self):
+        return {1: "A", 6: "B", 11: "C", 211: "C"}[self.voucher_type]
+
     @model_validator(mode="after")
     def rules(self):
+        if self.voucher_type in (1, 6):
+            if None in (self.net_amount, self.vat_id, self.vat_amount):
+                raise ValueError("Factura A/B requiere neto, alícuota y monto IVA explícitos")
+            net, vat = Decimal(self.net_amount), Decimal(self.vat_amount)
+            rate = {3: "0", 4: "10.5", 5: "21", 6: "27"}[self.vat_id]
+            expected = (net * Decimal(rate) / 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            if net <= 0 or vat != expected or net + vat != Decimal(self.total):
+                raise ValueError("Neto, IVA y total no coinciden con la alícuota y redondeo")
+            if self.voucher_type == 1 and self.recipient_iva_id not in (1, 6):
+                raise ValueError("Factura A requiere receptor RI o monotributista en este alcance")
+            if self.voucher_type == 6 and self.recipient_iva_id not in (4, 5):
+                raise ValueError(
+                    "Factura B solo admite receptor exento o consumidor final con CUIT"
+                )
+        elif any(x is not None for x in (self.net_amount, self.vat_id, self.vat_amount)):
+            raise ValueError("Una factura C no discrimina IVA")
         if self.service_to < self.service_from:
             raise ValueError("El período de servicio está invertido")
         if self.due_date < self.invoice_date:
@@ -129,10 +188,10 @@ class Invoice(StrictModel):
             CbteFch=self.invoice_date.strftime("%Y%m%d"),
             ImpTotal=self.total,
             ImpTotConc="0.00",
-            ImpNeto=self.total,
+            ImpNeto=self.net_amount or self.total,
             ImpOpEx="0.00",
             ImpTrib="0.00",
-            ImpIVA="0.00",
+            ImpIVA=self.vat_amount or "0.00",
             FchServDesde=self.service_from.strftime("%Y%m%d"),
             FchServHasta=self.service_to.strftime("%Y%m%d"),
             FchVtoPago=self.due_date.strftime("%Y%m%d"),
@@ -140,6 +199,12 @@ class Invoice(StrictModel):
             MonCotiz="1",
             CondicionIVAReceptorId=self.recipient_iva_id,
         )
+        if self.voucher_type in (1, 6):
+            d["Iva"] = {
+                "AlicIva": [
+                    {"Id": self.vat_id, "BaseImp": self.net_amount, "Importe": self.vat_amount}
+                ]
+            }
         opts = []
         if self.voucher_type == 211:
             opts += [{"Id": "2101", "Valor": self.cbu}, {"Id": "27", "Valor": self.transfer}]

@@ -7,17 +7,18 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from . import delivery
+from . import delivery, monitor
 from .authorization import validate_authorization
 from .engine import Engine
-from .models import Invoice
+from .models import Invoice, today
 from .pdf import render_invoice
 from .soap import Wsfe
 from .storage import data_home, load_profile
 
 mcp = FastMCP(
     "ARCA Codex",
-    instructions="Facturas C y FCE C de servicios en ARS. "
+    instructions="Facturas A/B/C y FCE C de servicios en ARS según régimen del emisor. "
+    "Consultar revenue_status para monotributo y mostrar advertencias antes de emitir. "
     "Preparar y mostrar datos antes de emitir. Nunca pedir claves, certificados o contraseñas por chat. "
     "Ante estado uncertain usar reconcile_invoice; nunca reintentar la emisión. "
     "Antes de archivar preguntar fecha del nombre y carpeta con invoice_output_options. "
@@ -56,7 +57,53 @@ def configuration_status() -> dict[str, Any]:
         "issuer_cuit": p.issuer.cuit,
         "point_of_sale": p.point_of_sale,
         "production_enabled": p.production_enabled,
+        "tax_regime": p.issuer.tax_regime,
+        "certificate_cuit": p.certificate_cuit or p.issuer.cuit,
+        "delegation_confirmed": p.delegation_confirmed,
+        "ordinary_a_authorized": p.ordinary_a_authorized,
+        "supported_vouchers": [1, 6]
+        if p.issuer.tax_regime == "responsable_inscripto"
+        else [11]
+        if p.issuer.tax_regime == "exento"
+        else [11, 211],
     }
+
+
+@mcp.tool(annotations=READ)
+def list_billing_profiles() -> dict[str, Any]:
+    """Listar perfiles privados sin secretos ni cambiar el emisor de esta conexión."""
+    from .profiles import list_profiles
+
+    return {
+        "profiles": list_profiles(),
+        "notice": "Cada conexión conserva su perfil; elegir explícitamente el servidor del emisor antes de preparar",
+    }
+
+
+@mcp.tool(annotations=LOCAL)
+def configure_revenue_control(policy: monitor.RevenuePolicy) -> dict[str, Any]:
+    """Guardar categoría confirmada, umbral y cobertura declarada del historial. No recategoriza ARCA."""
+    e = engine()
+    return monitor.configure(e.root, e.profile, policy)
+
+
+@mcp.tool(annotations=LOCAL)
+def import_revenue_history(entries: list[monitor.RevenueEntry]) -> dict[str, Any]:
+    """Importar comprobantes reales de otros canales sin duplicar ni emitir. Mostrar datos antes de guardar."""
+    e = engine()
+    return monitor.import_entries(e.root, e.profile, entries)
+
+
+@mcp.tool(annotations=READ)
+def revenue_status(
+    candidate: Invoice | None = None, monthly_projection: str | None = None
+) -> dict[str, Any]:
+    """Control preventivo de últimos 12 meses por CUIT. Incluir factura prevista antes de confirmar su emisión.
+    Historial externo debe importarse y su cobertura confirmarse; no determina categoría fiscal por sí solo."""
+    e = engine()
+    return monitor.report(
+        e.root, e.profile, as_of=today(), candidate=candidate, monthly_projection=monthly_projection
+    )
 
 
 @mcp.tool(annotations=READ)
@@ -66,8 +113,8 @@ def arca_health() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ)
-def billing_parameters() -> dict[str, Any]:
-    """Consultar puntos de venta WSFE y condiciones IVA válidas para clase C."""
+def billing_parameters(voucher_class: Literal["A", "B", "C"] = "C") -> dict[str, Any]:
+    """Consultar puntos de venta WSFE y condiciones IVA válidas para la clase A/B/C solicitada."""
     e = engine()
     points = e.client.points()
     return {
@@ -79,7 +126,8 @@ def billing_parameters() -> dict[str, Any]:
             if not points and e.profile.environment == "homologacion"
             else None
         ),
-        "recipient_iva_conditions": e.client.iva_conditions(),
+        "recipient_iva_conditions": e.client.iva_conditions(voucher_class),
+        "vat_rates": e.client.vat_rates() if voucher_class in ("A", "B") else [],
     }
 
 
@@ -124,13 +172,21 @@ def prepare_invoice(invoice: Invoice, request_key: str) -> dict[str, Any]:
 
 @mcp.tool(annotations=WRITE)
 def issue_invoice(
-    draft_id: str, confirmation: str, emission_place: str | None = None
+    draft_id: str,
+    confirmation: str,
+    emission_place: str | None = None,
+    revenue_confirmation: str | None = None,
 ) -> dict[str, Any]:
     """Emitir comprobante con efectos fiscales (FECAESolicitar). Requiere aprobación explícita
     del usuario sobre el resumen exacto y confirmation retornado por prepare_invoice.
     Para FCE requiere emission_place confirmado en el resumen mostrado al usuario.
     El hash vincula los datos; no prueba consentimiento humano. Ante uncertain conciliar."""
-    return engine().emit(draft_id, confirmation, emission_place=emission_place)
+    return engine().emit(
+        draft_id,
+        confirmation,
+        emission_place=emission_place,
+        revenue_confirmation=revenue_confirmation,
+    )
 
 
 @mcp.tool(annotations=READ)
@@ -145,7 +201,7 @@ def consult_invoice(
     environment: Literal["homologacion", "produccion"],
     issuer_cuit: str,
     point_of_sale: Annotated[int, Field(strict=True, ge=1, le=99999)],
-    voucher_type: Literal[11, 211],
+    voucher_type: Literal[1, 6, 11, 211],
     number: Annotated[int, Field(strict=True, ge=1, le=99999999)],
 ) -> dict[str, Any]:
     """Consultar siempre ARCA mediante FECompConsultar, incluso si ya está autorizado localmente.
@@ -175,6 +231,7 @@ def consult_invoice(
         "ImpOpEx",
         "ImpTrib",
         "ImpIVA",
+        "Iva",
         "MonId",
         "MonCotiz",
         "FchServDesde",

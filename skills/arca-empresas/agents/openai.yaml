@@ -1,0 +1,4 @@
+interface:
+  display_name: "ARCA: facturar servicios de empresas"
+  short_description: "Preparar facturas A, B o C según el régimen del emisor"
+  default_prompt: "Usá $arca-empresas para preparar una factura de servicios y revisar su IVA antes de emitir."

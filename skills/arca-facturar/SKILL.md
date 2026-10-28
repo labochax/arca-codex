@@ -26,7 +26,10 @@ próximo número de facturas adjuntas. Cada usuario conserva sus propias credenc
 ## Preparar
 
 1. Confirmar que el alcance sea emisor monotributista, servicio, ARS, cantidad 1,
-   receptor identificado por CUIT y sin otros tributos. No convertir operaciones
+   receptor identificado por CUIT y sin otros tributos. Para empresas RI/exentas usar
+   también `arca-empresas`; para terceros y selección de emisor usar `arca-perfiles`.
+   Consultar `revenue_status` para monotributo antes de preparar y antes de emitir;
+   configurar categoría e historial con `arca-monotributo`. No convertir operaciones
    fuera de alcance a C para hacerlas pasar.
 2. Determinar el tipo exacto. **Factura C = 11. FCE MiPyME C = 211.** No sustituir
    una por la otra. Si el usuario aporta un PDF de ejemplo, leer su código.
@@ -62,6 +65,11 @@ En FCE incluir también el lugar de emisión confirmado. Pasarlo como `emission_
 a `issue_invoice`: es obligatorio antes de solicitar CAE y se conserva con el resultado.
 
 Pedir confirmación explícita para esa emisión concreta después de mostrar el resumen.
+Si el control de ingresos está configurado, mostrar también acumulado, cobertura,
+margen y advertencias. Ante advertencias, obtener aprobación y pasar la
+`revenue_confirmation` vigente junto a la confirmación fiscal. No omitir el control
+ni confundir su confirmación con la del correo. Si falta configuración, informar
+que todavía no existe un control completo de ingresos; no afirmar margen seguro.
 Una solicitud de investigar, instalar, preparar o automatizar facturas futuras no
 autoriza una emisión actual. Si el usuario ya aprobó ese mismo resumen sin cambios
 en la conversación, continuar; no pedir permiso de nuevo.

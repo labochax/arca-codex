@@ -11,6 +11,15 @@ from .soap import many
 
 
 def _equal(key, actual, expected):
+    if key == "Iva":
+
+        def rates(value):
+            return {
+                int(x["Id"]): (Decimal(str(x["BaseImp"])), Decimal(str(x["Importe"])))
+                for x in many((value or {}).get("AlicIva"))
+            }
+
+        return rates(actual) == rates(expected)
     if key == "Opcionales":
 
         def options(value):

@@ -1,0 +1,4 @@
+interface:
+  display_name: "ARCA: perfiles y representación"
+  short_description: "Separar emisores y configurar representación autorizada"
+  default_prompt: "Usá $arca-perfiles para configurar un emisor sin mezclar sus certificados e historial."
